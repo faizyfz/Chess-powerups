@@ -35,7 +35,6 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
 .buff span{display:block;color:var(--muted);font-size:.76rem}
 .bdg{position:absolute;top:1px;left:2px;font-size:.3em;line-height:1;color:#111;text-shadow:0 0 2px #fff;pointer-events:none}
 #legend{font-size:.78rem;color:var(--muted);margin-top:4px}
-#version{margin:12px 0 2px;text-align:center;font: .7rem Arial,sans-serif;color:var(--muted);opacity:.7}
 #hand{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .card{background:var(--panel);border:3px solid;border-radius:8px;padding:7px 9px;width:calc(50% - 4px);min-width:140px;cursor:pointer;text-align:left;color:var(--ink)}
 .card b{display:block}.card i{display:block;font-size:.72rem;margin-bottom:3px}.card span{font-size:.78rem;color:var(--muted)}
@@ -76,10 +75,9 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
   <div id="note"></div>
   <div id="hand"></div>
 </div>
-<div id="version">Card Chess · Version 1.1</div>
+<footer style="margin-top:12px;text-align:center;color:var(--muted);font:12px Arial,sans-serif;opacity:.75">Card Chess · Version 1.1</footer>
 </main>
 
-<!-- Firebase replaces PeerJS: no direct browser-to-browser WebRTC connection required. -->
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -145,6 +143,20 @@ const HOP=[[2,0],[-2,0],[0,2],[0,-2],[2,2],[2,-2],[-2,2],[-2,-2]];
 const ALL8=D4.concat(X4);
 let S,mine=null,conn=null,sel=null,mode=null,local=false;
 let openMenu=null;
+let roomRef=null, roomCode=null, roomListener=null, firebaseReady=null;
+const firebaseConfig={
+  apiKey:"AIzaSyCwa2aRIQ4n4Uu8XF_uIB1HwRL9b98hJ14",
+  authDomain:"chess-25e67.firebaseapp.com",
+  databaseURL:"https://chess-25e67-default-rtdb.firebaseio.com",
+  projectId:"chess-25e67",
+  storageBucket:"chess-25e67.firebasestorage.app",
+  messagingSenderId:"22937751322",
+  appId:"1:22937751322:web:47f518d6a55e94a8e3a6a3",
+  measurementId:"G-LGJ0TB07FC"
+};
+firebase.initializeApp(firebaseConfig);
+const auth=firebase.auth(), db=firebase.database();
+async function ensureFirebase(){if(!firebaseReady)firebaseReady=auth.signInAnonymously();await firebaseReady;return auth.currentUser;}
 
 const has=(c,id)=>S.perks[c].includes(id);
 const pick=a=>a[Math.floor(Math.random()*a.length)];
@@ -346,13 +358,7 @@ const validTarget=(card,r,c)=>{
   return !card.ok||card.ok(r,c,q,me);
 };
 function sync(){
-  if(conn&&conn.open&&roomRef&&!local){
-    roomRef.child('state').set(S).catch(err=>{
-      networkMessage='Sync failed — check your connection.';
-      $('status').textContent=networkMessage;
-      console.error('Firebase state write failed:',err);
-    });
-  }
+  if(roomRef && S && !local){ roomRef.child('state').set(S).catch(e=>{$('lobbymsg').textContent='Sync error: '+e.message;}); }
   render();
 }
 
@@ -496,140 +502,66 @@ document.addEventListener('click',e=>{
   if(pi&&!pi.disabled){buyPerk(pi.dataset.perkkey);return}
 });
 
-/* ================= Firebase multiplayer =================
-   1) Create a Firebase project.
-   2) Enable Authentication > Anonymous.
-   3) Create a Realtime Database.
-   4) Paste the web-app config below and deploy database.rules.json.
-*/
-const firebaseConfig = {
-  apiKey: "PASTE_YOUR_FIREBASE_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  databaseURL: "https://YOUR_PROJECT_ID-default-rtdb.firebaseio.com",
-  projectId: "YOUR_PROJECT_ID",
-  appId: "PASTE_YOUR_FIREBASE_APP_ID"
-};
-
-let fbAuth=null,fbDb=null,roomRef=null,roomCode=null,playerUid=null;
-let roomUnsubscribe=null,presenceUnsubscribe=null,networkMessage='';
-const ROOM_CHARS='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-const makeRoomCode=()=>Array.from({length:6},()=>ROOM_CHARS[Math.floor(Math.random()*ROOM_CHARS.length)]).join('');
-
-function firebaseReady(){
-  return firebaseConfig.apiKey.startsWith('AIza') &&
-         !firebaseConfig.projectId.includes('YOUR_') &&
-         !firebaseConfig.appId.includes('PASTE_');
-}
-async function ensureFirebase(){
-  if(!firebaseReady()) throw new Error('Add your Firebase web-app config in the firebaseConfig section of index.html first.');
-  if(!firebase.apps.length) firebase.initializeApp(firebaseConfig);
-  fbAuth=firebase.auth(); fbDb=firebase.database();
-  if(!fbAuth.currentUser) await fbAuth.signInAnonymously();
-  playerUid=fbAuth.currentUser.uid;
-}
-function showLobbyError(err){
-  console.error(err);
-  $('lobbymsg').textContent=err&&err.message?err.message:'Could not connect. Please try again.';
-}
-function start(){
-  $('lobby').hidden=true;$('game').hidden=false;
-  $('timer').disabled=true;
-  clockReset();render();
-}
-function attachRoom(code,side){
-  roomCode=code;mine=side;local=false;
-  roomRef=fbDb.ref('rooms/'+code);
-  conn={open:true,send:data=>roomRef.child('state').set(data)};
-  const myPresence=roomRef.child('presence/'+playerUid);
-  myPresence.onDisconnect().set(false).catch(console.warn);
-  myPresence.set(true).catch(console.warn);
-  if(roomUnsubscribe) roomRef.off('value',roomUnsubscribe);
-  roomUnsubscribe=roomRef.on('value',snap=>{
+/* ================= networking ================= */
+function start(){ $('lobby').hidden=true; $('game').hidden=false; clockReset(); render(); }
+function showLobbyError(message){ $('lobbymsg').textContent=message; }
+function detachRoomListener(){ if(roomRef && roomListener) roomRef.off('value',roomListener); roomListener=null; }
+function listenToRoom(){
+  detachRoomListener();
+  roomListener=snap=>{
     const room=snap.val();
-    if(!room){networkMessage='Room no longer exists.';$('status').textContent=networkMessage;return;}
-    if(room.players&&room.players.w===playerUid) mine='w';
-    else if(room.players&&room.players.b===playerUid) mine='b';
-    const otherUid=room.players&&room.players[mine==='w'?'b':'w'];
-    if(otherUid){
-      const online=room.presence&&room.presence[otherUid]&&room.presence[otherUid].connected;
-      networkMessage=online===false?'Opponent disconnected — waiting for them to reconnect.':'Online multiplayer';
-    }else networkMessage='Waiting for your friend to join…';
+    if(!room){showLobbyError('This room no longer exists.');return;}
     if(room.state){
-      S=room.state;sel=null;mode=null;openMenu=null;clockReset();
+      S=room.state; sel=mode=null; openMenu=null;
       if($('game').hidden) start(); else render();
-    }else if(mine==='w'&&room.players&&room.players.b){
+    } else if(room.guestUid && mine==='w') {
       const mins=Number(room.minutes)||0;
-      roomRef.child('state').transaction(current=>current||newGame(mins));
+      S=newGame(mins);
+      roomRef.child('state').set(S).catch(e=>showLobbyError('Could not start game: '+e.message));
+      start();
     }
-    if($('game').hidden&&room.state) start();
-  },err=>{networkMessage='Database connection lost.';$('lobbymsg').textContent=err.message;});
-  const presenceRef=roomRef.child('presence');
-  if(presenceUnsubscribe) presenceRef.off('value',presenceUnsubscribe);
-  presenceUnsubscribe=presenceRef.on('value',()=>{
-    if(S&&!S.win){
-      const otherUid=mine==='w'?null:null;
-      render();
-    }
-  });
+    if(room.status==='closed') $('status').textContent='Opponent disconnected.';
+  };
+  roomRef.on('value',roomListener,err=>showLobbyError('Room error: '+err.message));
 }
-
-$('local').onclick=()=>{
-  local=true;mine=null;conn=null;roomRef=null;networkMessage='';
-  const mins=+$('timer').value||0;S=newGame(mins);start();
-};
-
+$('local').onclick=()=>{local=true;roomRef=null;const mins=+$('timer').value||0;S=newGame(mins);start()};
 $('host').onclick=async()=>{
-  $('host').disabled=true;$('lobbymsg').textContent='Connecting to multiplayer…';
   try{
-    await ensureFirebase();
+    showLobbyError('Connecting to Firebase…');
+    const user=await ensureFirebase();
+    const id=Math.random().toString(36).slice(2,8).toUpperCase();
+    roomCode=id; mine='w'; local=false;
+    roomRef=db.ref('rooms/'+id);
     const mins=+$('timer').value||0;
-    let code=makeRoomCode(),ref=fbDb.ref('rooms/'+code),created=false;
-    for(let i=0;i<8&&!created;i++){
-      const result=await ref.transaction(current=>current===null?{
-        createdAt:firebase.database.ServerValue.TIMESTAMP,
-        hostUid:playerUid,minutes:mins,
-        players:{w:playerUid,b:null},presence:{},state:null
-      }:undefined);
-      created=result.committed;
-      if(!created){code=makeRoomCode();ref=fbDb.ref('rooms/'+code);}
-    }
-    if(!created) throw new Error('Could not reserve a room code. Please try again.');
-    $('code').textContent='Room code: '+code+' — send this to your friend.';
-    $('lobbymsg').textContent='Room created. Waiting for your friend…';
-    attachRoom(code,'w');
-  }catch(err){showLobbyError(err);$('host').disabled=false;}
+    await roomRef.set({hostUid:user.uid,guestUid:null,minutes:mins,createdAt:firebase.database.ServerValue.TIMESTAMP,status:'waiting'});
+    roomRef.child('hostOnline').onDisconnect().set(false);
+    await roomRef.child('hostOnline').set(true);
+    $('timer').disabled=true;
+    $('code').textContent='Your code: '+id+' — send it to your friend';
+    showLobbyError('Waiting for your friend to join…');
+    listenToRoom();
+  }catch(e){showLobbyError('Could not create game: '+e.message);}
 };
-
 $('joinBtn').onclick=async()=>{
-  const code=$('join').value.trim().toUpperCase().replace(/[^A-Z0-9]/g,'');
-  if(!code){$('lobbymsg').textContent='Enter a room code.';return;}
-  $('joinBtn').disabled=true;$('lobbymsg').textContent='Joining room…';
+  const id=$('join').value.trim().toUpperCase();
+  if(!id){showLobbyError('Enter your friend’s room code.');return;}
   try{
-    await ensureFirebase();
-    const ref=fbDb.ref('rooms/'+code),snap=await ref.once('value'),room=snap.val();
-    if(!room) throw new Error('Room not found. Check the code and try again.');
-    let side=null;
-    if(room.players&&room.players.w===playerUid) side='w';
-    else if(room.players&&room.players.b===playerUid) side='b';
-    else if(room.players&&room.players.b==null){
-      const claim=await ref.child('players/b').transaction(current=>current===null?playerUid:current);
-      if(claim.committed&&claim.snapshot.val()===playerUid) side='b';
-    }
-    if(!side) throw new Error('This room already has two players.');
-    $('lobbymsg').textContent='Joined room '+code+'.';
-    attachRoom(code,side);
-  }catch(err){showLobbyError(err);}
-  finally{$('joinBtn').disabled=false;}
-};
-
-// Keep the connection indicator visible after each board redraw.
-const originalRender=render;
-render=function(){
-  originalRender();
-  if(networkMessage&&S&&!local){
-    const base=$('status').textContent;
-    if(!base.includes(networkMessage)) $('status').textContent=base+' · '+networkMessage;
-  }
+    showLobbyError('Joining room…');
+    const user=await ensureFirebase();
+    const ref=db.ref('rooms/'+id);
+    const result=await ref.transaction(room=>{
+      if(!room || room.hostUid===user.uid || (room.guestUid && room.guestUid!==user.uid)) return;
+      room.guestUid=user.uid; room.status='playing'; return room;
+    });
+    if(!result.committed){showLobbyError('Room not found or already full. Check the code.');return;}
+    roomCode=id; roomRef=ref; mine='b'; local=false;
+    ref.child('guestOnline').onDisconnect().set(false);
+    await ref.child('guestOnline').set(true);
+    $('timer').disabled=true;
+    $('code').textContent='Joined room: '+id;
+    showLobbyError('Connected. Waiting for the host to start…');
+    listenToRoom();
+  }catch(e){showLobbyError('Could not join game: '+e.message);}
 };
 </script>
 </body>
