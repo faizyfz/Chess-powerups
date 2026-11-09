@@ -36,6 +36,7 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
 .bdg{position:absolute;top:1px;left:2px;font-size:.3em;line-height:1;color:#111;text-shadow:0 0 2px #fff;pointer-events:none}
 #legend{font-size:.78rem;color:var(--muted);margin-top:4px}
 .debuff-queued{outline:3px dashed #e8b04a;outline-offset:-4px}
+.sq.trap{box-shadow:inset 0 0 0 3px #e67e22}
 #version{margin:12px 0 2px;text-align:center;font: .7rem Arial,sans-serif;color:var(--muted);opacity:.7}
 #hand{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .card{background:var(--panel);border:3px solid;border-radius:8px;padding:7px 9px;width:calc(50% - 4px);min-width:140px;cursor:pointer;text-align:left;color:var(--ink)}
@@ -71,19 +72,19 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
   <div id="opp" class="row"></div>
   <div id="status"></div><div id="msg"></div>
   <div id="board"></div>
-  <div id="legend">⚠️ disarmed (cannot capture) · 🛡️ shielded (cannot be captured) · ★n bounty (+n pts if captured)</div>
+  <div id="legend">⚠️ disarmed (cannot capture) · 🛡️ shielded · ☠️ marked for death · 💠 insured · ? invisible · ★n bounty (+n pts if captured)</div>
   <div id="me" class="row"></div>
   <div id="shop"></div>
   <div id="note"></div>
   <div id="hand"></div>
 </div>
-<div id="version">Card Chess · Version 1.1</div>
+<div id="version">Card Chess · Version 1.2</div>
 </main>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 /* ===== RARITIES: c=perk buy cost, s=spell cast cost ===== */
-const RAR={common:{c:1,s:0,col:'#9aa7a0'},uncommon:{c:2,s:1,col:'#4caf6a'},rare:{c:3,s:2,col:'#4f8dff'},epic:{c:5,s:3,col:'#b86bff'},legendary:{c:10,s:5,col:'#f0a020'}};
+const RAR={common:{c:1,s:1,col:'#9aa7a0'},uncommon:{c:2,s:2,col:'#4caf6a'},rare:{c:3,s:3,col:'#4f8dff'},epic:{c:5,s:5,col:'#b86bff'},legendary:{c:10,s:8,col:'#f0a020'}};
 
 /* ===== PIECE VALUES (real chess values) ===== */
 const VAL={p:1,n:3,b:3,r:5,q:9,k:0};
@@ -111,25 +112,32 @@ const PERKS={
   queenKnight:{r:'epic',name:'Amazon',desc:'Your queen also moves like a knight.'},
   ghost:{r:'legendary',name:'Spectral Queen',desc:'Your queen can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
   legion:{r:'legendary',name:'Spectral Legion',desc:'Your rooks and bishops can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
-  guard:{r:'legendary',name:"King's Guard",desc:'Pieces standing next to your king cannot be captured.'}
+  guard:{r:'legendary',name:"King's Guard",desc:'Pieces standing next to your king cannot be captured.'},
+  pawnWard:{r:'common',name:'Spellproof Pawns',desc:'All your pawns are immune to enemy spells, including Bounty, Assassin’s Mark, Disarm and Trap.'},
+  bodyguard:{r:'uncommon',name:'Bodyguard',desc:'Your pieces next to your king cannot be captured by enemy pawns.'},
+  heavyArmor:{r:'rare',name:'Heavy Armor',desc:'Your rooks cannot be captured by enemy pawns.'},
+  promotionMaster:{r:'epic',name:'Promotion Master',desc:'Your pawns may promote to a queen, rook, bishop or knight.'},
+  warChest:{r:'legendary',name:'War Chest',desc:'Gain 1 extra point at the start of each of your turns.'}
 };
 
 /* ===== SPELLS: 2-card cycling hand, drawn fresh each turn ===== */
 const SPELLS={
-  summon:{r:'uncommon',name:'Summon',desc:'Place a pawn on an empty square in your back two rows.',t:'empty',
-    ok:(r,c,p,me)=>me==='w'?r>=6:r<=1, run:(r,c,p,me)=>{S.b[r][c]={t:'p',c:me}}},
-  pilfer:{r:'common',name:'Pilfer',desc:'Steal 1 point from your opponent.',t:null,
-    run:(r,c,p,me)=>{const o=me==='w'?'b':'w';if(S.pts[o]>0){S.pts[o]--;S.pts[me]++}}},
-  bounty:{r:'common',name:'Bounty',desc:'Mark an enemy piece: capturing it pays +2 points.',t:'enemy',
-    run:(r,c,p)=>{p.bounty=2}},
-  shield:{r:'uncommon',name:'Shield',desc:'One of your pieces (not the king) cannot be captured until your next turn.',t:'own',
-    ok:(r,c,p)=>p.t!=='k', run:(r,c,p)=>{p.shield=1}},
-  knighting:{r:'rare',name:'Knighting',desc:'Turn one of your pawns into a knight.',t:'own',
-    ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.t='n'}},
-  assassin:{r:'uncommon',name:'Assassin',desc:'Remove an enemy pawn.',t:'enemy',
-    ok:(r,c,p)=>p.t==='p'&&!p.shield,run:(r,c)=>{S.b[r][c]=null}},
-  disarm:{r:'rare',name:'Disarm',desc:'Choose an enemy piece. After their next move, it cannot capture during their following turn.',t:'enemy',
-    run:(r,c,p)=>{p.noTake=1}}
+  pilfer:{r:'common',name:'Pilfer',desc:'Steal 1 point from your opponent.',t:null,run:(r,c,p,me)=>{const o=me==='w'?'b':'w';if(S.pts[o]>0){S.pts[o]--;S.pts[me]++}}},
+  revenge:{r:'uncommon',name:'Revenge',desc:'The next time one of your pieces is captured, gain points equal to its value.',t:null,run:(r,c,p,me)=>{S.revenge[me]=1}},
+  bounty:{r:'common',name:'Bounty',desc:'Mark an enemy piece: capturing it pays +2 points.',t:'enemy',run:(r,c,p)=>{p.bounty=2}},
+  shield:{r:'uncommon',name:'Shield',desc:'One of your pieces (not the king) cannot be captured until your next turn.',t:'own',ok:(r,c,p)=>p.t!=='k',run:(r,c,p)=>{p.shield=1}},
+  knighting:{r:'rare',name:'Knighting',desc:'Turn one of your pawns into a knight.',t:'own',ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.t='n'}},
+  assassinMark:{r:'rare',name:"Assassin's Mark",desc:'Mark an enemy pawn. If it stays on the same square through the end of its next turn, it is killed.',t:'enemy',ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.assassinMark={r,c}}},
+  disarm:{r:'rare',name:'Disarm',desc:'Choose an enemy piece. After their next move, it cannot capture during their following turn.',t:'enemy',run:(r,c,p)=>{p.noTake=1}},
+  trap:{r:'rare',name:'Trap',desc:'Mark an empty square. The first enemy piece landing there loses its next move.',t:'empty',run:(r,c,p,me)=>{S.traps.push({r,c,by:me})}},
+  teleport:{r:'rare',name:'Teleport',desc:'Move one of your pieces to an empty square within 3 squares.',t:'own',twoTarget:'teleport',run:(r,c,p,me,from)=>{const q=S.b[from[0]][from[1]];S.b[from[0]][from[1]]=null;S.b[r][c]=q;S.ep=null}},
+  swap:{r:'rare',name:'Swap',desc:'Swap the positions of two of your pieces.',t:'own',twoTarget:'swap',run:(r,c,p,me,from)=>{const q=S.b[from[0]][from[1]];S.b[from[0]][from[1]]=S.b[r][c];S.b[r][c]=q;S.ep=null}},
+  reinforcePawn:{r:'rare',name:'Reinforce Pawn',desc:'Summon a pawn on an empty square in your back two rows.',t:'empty',piece:'p',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'p',c:me}}},
+  reinforceBishop:{r:'epic',name:'Reinforce Bishop',desc:'Summon a bishop on an empty square in your back two rows.',t:'empty',piece:'b',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'b',c:me}}},
+  reinforceKnight:{r:'epic',name:'Reinforce Knight',desc:'Summon a knight on an empty square in your back two rows.',t:'empty',piece:'n',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'n',c:me}}},
+  reinforceRook:{r:'legendary',name:'Reinforce Rook',desc:'Summon a rook on an empty square in your back two rows.',t:'empty',piece:'r',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'r',c:me}}},
+  lifeInsurance:{r:'rare',name:'Life Insurance',desc:'Insure a pawn (free), knight/bishop (2 pts), or rook (3 pts). If captured, you and your opponent both receive its value.',t:'own',dynamic:'insurance',ok:(r,c,p)=>['p','n','b','r'].includes(p.t),run:(r,c,p)=>{p.insured=1}},
+  invisibility:{r:'rare',name:'Invisibility',desc:'Hide a pawn (3), bishop/knight (5), or rook (8) for two enemy turns. It can still be captured at its real square.',t:'own',dynamic:'invisibility',ok:(r,c,p)=>['p','b','n','r'].includes(p.t),run:(r,c,p)=>{p.invisible=2;p.invisibleFrom=[r,c]}}
 };
 
 const SPELL_KEYS=Object.keys(SPELLS);
@@ -160,7 +168,7 @@ function newGame(mins){
   const back='rnbqkbnr',b=Array.from({length:8},()=>Array(8).fill(null));
   for(let c=0;c<8;c++){b[0][c]={t:back[c],c:'b'};b[1][c]={t:'p',c:'b'};b[6][c]={t:'p',c:'w'};b[7][c]={t:back[c],c:'w'}}
   return {b,turn:'w',played:false,extra:0,win:null,ep:null,msg:'',
-    pts:{w:2,b:2},perks:{w:[],b:[]},h:{w:dealHand(),b:dealHand()},armed:null,tgt:false,why:null,
+    pts:{w:2,b:2},perks:{w:[],b:[]},h:{w:dealHand(),b:dealHand()},armed:null,tgt:false,spellFrom:null,traps:[],revenge:{w:0,b:0},pendingDebuff:null,why:null,
     t:mins?{w:mins*60000,b:mins*60000}:null};
 }
 
@@ -175,6 +183,8 @@ function canTake(a,q,r,c){
   if(!q||q.c===a.c||q.shield) return false;
   if(q.t!=='k'){
     if(q.t==='p'&&a.t!=='p'&&has(q.c,'wall')&&guarded(q,r,c)) return false;
+    if(q.t==='r'&&a.t==='p'&&has(q.c,'heavyArmor')) return false;
+    if(has(q.c,'bodyguard')&&a.t==='p'&&nearKing(q,r,c)) return false;
     if(has(q.c,'guard')&&nearKing(q,r,c)) return false;
   }
   return true;
@@ -182,7 +192,7 @@ function canTake(a,q,r,c){
 
 function moves(r,c){
   const p=S.b[r][c],o=[];
-  if(!p||p.frozen) return o;
+  if(!p||p.frozen>0) return o;
   const me=p.c,H=id=>has(me,id);
   const inb=(y,x)=>y>=0&&y<8&&x>=0&&x<8;
   const free=(y,x)=>inb(y,x)&&!S.b[y][x];
@@ -270,31 +280,39 @@ setInterval(()=>{
   document.querySelectorAll('.clk').forEach(e=>e.textContent=fmtT(remMs(e.dataset.c)));
   if(!S.win&&remMs(S.turn)<=0){
     const loser=S.turn,mineNow=local||mine===loser;
-    settle();S.win=loser==='w'?'b':'w';S.why='time';S.msg='';S.armed=null;S.tgt=false;
+    settle();S.win=loser==='w'?'b':'w';S.why='time';S.msg='';S.armed=null;S.tgt=false;S.spellFrom=null;
     if(mineNow) sync(); else render();
   }
 },250);
 
 function endTurn(){
   settle();
-  const me=S.turn,op=me==='w'?'b':'w';
-  for(const row of S.b)for(const q of row){
-    if(!q) continue;
-    if(q.c===me){delete q.frozen;delete q.noTake;}
+  const me=S.turn,op=me==='w'?'b':'w',notices=S.msg?[S.msg]:[];
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const q=S.b[r][c];if(!q)continue;
+    if(q.c===me){
+      delete q.noTake;
+      if(q.frozen){q.frozen--;if(q.frozen<=0)delete q.frozen;}
+      if(q.assassinMark){
+        if(q.shield){delete q.assassinMark;notices.push("Shield protected the marked pawn.");}
+        else if(q.assassinMark.r===r&&q.assassinMark.c===c){S.b[r][c]=null;notices.push("Assassin's Mark eliminated the pawn.");continue;}
+        else delete q.assassinMark;
+      }
+    }
     if(q.c===op) delete q.shield;
+    if(q.c===op&&q.invisible){q.invisible--;if(q.invisible<=0){delete q.invisible;delete q.invisibleFrom;notices.push('An invisible piece has reappeared.');}}
   }
   if(S.pendingDebuff&&S.pendingDebuff.targetColor===me){
     let applied=false;
-    for(const row of S.b)for(const q of row){
-      if(q&&q.c===me&&q.debuffQueued){delete q.debuffQueued;q.noTake=1;applied=true;}
-    }
+    for(const row of S.b)for(const q of row){if(q&&q.c===me&&q.debuffQueued){delete q.debuffQueued;q.noTake=1;applied=true;}}
     S.pendingDebuff=null;
-    S.msg=applied?'Disarm activated: your marked piece cannot capture this turn.':'Disarm expired: the marked piece is no longer on the board.';
+    notices.push(applied?'Disarm activated: your marked piece cannot capture this turn.':'Disarm expired: the marked piece is no longer on the board.');
   }
-  S.turn=op;S.played=false;S.extra=0;S.armed=null;S.tgt=false;
+  S.turn=op;S.played=false;S.extra=0;S.armed=null;S.tgt=false;S.spellFrom=null;
   S.h[op]=dealHand();
-  if(has(op,'escape')&&inCheck(op)){S.extra=1;S.msg='King in check — Desperate Flight gives 2 moves!'}
-  else S.msg='';
+  if(has(op,'warChest')){S.pts[op]++;notices.push('War Chest: +1 point.');}
+  if(has(op,'escape')&&inCheck(op)){S.extra=1;notices.push('King in check — Desperate Flight gives 2 moves!');}
+  S.msg=notices.join(' ');
   clockReset();
 }
 
@@ -305,9 +323,13 @@ function doMove(a,b,fl){
   if(fl==='ep'){const e=S.ep.pawn;cap=S.b[e[0]][e[1]];S.b[e[0]][e[1]]=null}
   S.b[a[0]][a[1]]=null;
   S.b[b[0]][b[1]]=fl==='sac'?null:p;
-  const take=q=>{if(!q)return;S.pts[me]+=VAL[q.t]+(q.bounty||0);if(q.t==='k')S.win=me};
+  if(p.assassinMark){delete p.assassinMark;S.msg="The marked pawn escaped by moving.";}
+  const take=q=>{if(!q)return;S.pts[me]+=VAL[q.t]+(q.bounty||0);if(q.insured)S.pts[q.c]+=VAL[q.t];if(S.revenge&&S.revenge[q.c]){S.pts[q.c]+=VAL[q.t];S.revenge[q.c]=0;S.msg=`Revenge paid ${VAL[q.t]} points.`;}if(q.t==='k')S.win=me};
   take(cap);
   if(fl==='sac') S.msg='Rook sacrificed to make the capture.';
+  // Traps trigger when an enemy lands on their marked square. Spellproof pawns ignore them.
+  const ti=(S.traps||[]).findIndex(t=>t.r===b[0]&&t.c===b[1]&&t.by!==me);
+  if(ti>=0){S.traps.splice(ti,1);if(!(p.t==='p'&&has(me,'pawnWard'))){p.frozen=2;S.msg='Trap triggered: that piece loses its next move.';}else S.msg='A spellproof pawn ignored the trap.';}
   S.ep=null;
   if(p.t==='p'&&a[1]===b[1]){
     const d=me==='w'?-1:1;
@@ -315,7 +337,10 @@ function doMove(a,b,fl){
     else if(b[0]-a[0]===d) S.ep={sq:a,pawn:b,c:me,dbl:false};
   }
   if(S.win) return;
-  if(fl!=='sac'&&p.t==='p'&&(b[0]===0||b[0]===7)) p.t='q';
+  if(fl!=='sac'&&p.t==='p'&&(b[0]===0||b[0]===7)){
+    if(has(me,'promotionMaster')){const choice=(prompt('Promote to: q (queen), r (rook), b (bishop), or n (knight)','q')||'q').toLowerCase();p.t=['q','r','b','n'].includes(choice)?choice:'q';}
+    else p.t='q';
+  }
   if(fl!=='sac'&&p.t==='n'&&has(me,'fork')){
     const tg=moves(b[0],b[1]).filter(m=>{const q=S.b[m[0]][m[1]];return q&&q.c!==me});
     if(tg.length>1&&tg.some(m=>S.b[m[0]][m[1]].t==='k')){
@@ -326,10 +351,21 @@ function doMove(a,b,fl){
   if(S.extra>0) S.extra--; else finishTurn();
 }
 
+function targetCost(card,p){
+  if(card.dynamic==='insurance')return p.t==='p'?0:(p.t==='n'||p.t==='b'?2:3);
+  if(card.dynamic==='invisibility')return p.t==='p'?3:(p.t==='n'||p.t==='b'?5:8);
+  return RAR[card.r].s;
+}
+function targetRarity(card,p){
+  if(card.dynamic==='insurance')return p.t==='p'?'common':(p.t==='n'||p.t==='b'?'uncommon':'rare');
+  if(card.dynamic==='invisibility')return p.t==='p'?'rare':(p.t==='n'||p.t==='b'?'epic':'legendary');
+  return card.r;
+}
+function minSpellCost(card){return card.dynamic==='insurance'?0:card.dynamic==='invisibility'?3:RAR[card.r].s;}
 function finishTurn(){
   const me=S.turn,id=S.armed!=null?S.h[me][S.armed]:null;
   if(!id){endTurn();return}
-  const card=SPELLS[id],cost=RAR[card.r].s;
+  const card=SPELLS[id],cost=minSpellCost(card);
   const done=m=>{endTurn();S.msg=(S.msg?S.msg+' ':'')+m};
   if(S.pts[me]<cost){S.h[me].splice(S.armed,1);done(`${card.name} fizzled — not enough points.`);return}
   if(card.t===null){
@@ -337,7 +373,7 @@ function finishTurn(){
     done(`${card.name} took effect.`);return;
   }
   let any=false;
-  for(let r=0;r<8&&!any;r++)for(let c=0;c<8;c++)if(validTarget(card,r,c)){any=true;break}
+  for(let r=0;r<8&&!any;r++)for(let c=0;c<8;c++)if(validTarget(card,r,c)&&S.pts[me]>=targetCost(card,S.b[r][c])){any=true;break}
   if(!any){S.h[me].splice(S.armed,1);done(`${card.name} fizzled — no valid target.`);return}
   S.tgt=true;S.msg=`Move made — now pick a target for ${card.name}.`;
 }
@@ -346,9 +382,17 @@ function finishTurn(){
 const myTurn=()=>!S.win&&(local||mine===S.turn);
 const validTarget=(card,r,c)=>{
   const q=S.b[r][c],me=S.turn;
+  if(card.twoTarget&&S.spellFrom){
+    const [fr,fc]=S.spellFrom;
+    if(card.twoTarget==='teleport')return !q&&Math.max(Math.abs(r-fr),Math.abs(c-fc))<=3;
+    if(card.twoTarget==='swap')return !!q&&q.c===me&&!(r===fr&&c===fc);
+  }
   if(card.t==='own'&&!(q&&q.c===me)) return false;
   if(card.t==='enemy'&&!(q&&q.c!==me)) return false;
   if(card.t==='empty'&&q) return false;
+  if(card.t==='enemy'&&q&&q.t==='p'&&has(q.c,'pawnWard')) return false;
+  if(card.twoTarget==='teleport'&&q&&q.t==='k')return false;
+  if(card.twoTarget==='swap'&&q&&q.t==='k')return false;
   return !card.ok||card.ok(r,c,q,me);
 };
 function sync(){
@@ -364,21 +408,26 @@ function clickSq(r,c){
   if(S.armed!==null&&!S.tgt&&S.h[S.turn][S.armed]==='disarm'){
     const q=S.b[r][c],me=S.turn,card=SPELLS.disarm;
     if(!(q&&q.c!==me)) return;
+    if(q.t==='p'&&has(q.c,'pawnWard')){S.msg='That pawn is immune to enemy spells.';render();return;}
     if(S.pts[me]<RAR[card.r].s) return;
     S.pts[me]-=RAR[card.r].s;
     q.debuffQueued=true;
     S.pendingDebuff={targetColor:q.c,by:me,name:card.name};
-    S.h[me].splice(S.armed,1);S.armed=null;sel=null;
+    S.h[me].splice(S.armed,1);S.armed=null;S.spellFrom=null;sel=null;
     S.msg=`Disarm queued for ${q.c==='w'?'White':'Black'}: it will activate after their next move. Make your move.`;
     sync();return;
   }
   if(S.tgt){
     const me=S.turn,card=SPELLS[S.h[me][S.armed]];
     if(!validTarget(card,r,c)) return;
-    S.pts[me]-=RAR[card.r].s;
-    card.run(r,c,S.b[r][c],me);
-    S.h[me].splice(S.armed,1);sel=null;
-    endTurn();S.msg=`${card.name} took effect.`;sync();return;
+    if(card.twoTarget&&!S.spellFrom){S.spellFrom=[r,c];S.msg=card.twoTarget==='teleport'?'Now choose an empty destination within 3 squares.':'Now choose your second piece to swap.';render();return;}
+    const cost=targetCost(card,S.b[r][c]);
+    if(S.pts[me]<cost){S.msg=`You need ${cost} points for that target.`;render();return;}
+    const rarity=targetRarity(card,S.b[r][c]);
+    S.pts[me]-=cost;
+    card.run(r,c,S.b[r][c],me,S.spellFrom);
+    S.h[me].splice(S.armed,1);sel=null;S.spellFrom=null;
+    endTurn();S.msg=(S.msg?S.msg+' ':'')+`${card.name} (${rarity}) took effect.`;sync();return;
   }
   if(sel){
     const m=moves(...sel).find(m=>m[0]===r&&m[1]===c);
@@ -391,13 +440,13 @@ function clickSq(r,c){
 function clickCard(i){
   if(!S||!myTurn()) return;
   if(S.pendingDebuff&&S.pendingDebuff.targetColor===S.turn){S.msg='A Disarm effect is pending. You cannot cast a spell this turn.';render();return;}
-  const me=S.turn,card=SPELLS[S.h[me][i]],cost=RAR[card.r].s;
+  const me=S.turn,card=SPELLS[S.h[me][i]],cost=minSpellCost(card);
   if(S.tgt){ 
-    if(S.armed===i){endTurn();S.msg=`${card.name} skipped.`;sync()}
+    if(S.armed===i){S.spellFrom=null;endTurn();S.msg=(S.msg?S.msg+' ':'')+`${card.name} skipped.`;sync()}
     return;
   }
   if(S.pts[me]<cost){S.msg=`Need ${cost} pt${cost!==1?'s':''} to cast ${card.name}.`;render();return}
-  S.armed=(S.armed===i)?null:i;
+  S.armed=(S.armed===i)?null:i;S.spellFrom=null;
   S.msg=S.armed!==null?`${card.name} armed — it takes effect after your move.`:'';
   render();
 }
@@ -457,6 +506,7 @@ function renderShop(){
 function render(){
   if(!S) return;
   const flip=mine==='b'&&!local,board=$('board');board.innerHTML='';
+  const who=local?S.turn:mine,opp=who==='w'?'b':'w',mt=myTurn()&&who===S.turn;
   const hl=sel?moves(...sel):[];
   const tg=(S.tgt&&myTurn())?SPELLS[S.h[S.turn][S.armed]]:null;
   for(let i=0;i<64;i++){
@@ -466,32 +516,38 @@ function render(){
     if(sel&&sel[0]===r&&sel[1]===c) d.classList.add('sel');
     if(hl.some(m=>m[0]===r&&m[1]===c)) d.classList.add('mv');
     if(tg&&validTarget(tg,r,c)) d.classList.add('tg');
+    const trapHere=(S.traps||[]).some(t=>t.r===r&&t.c===c);
+    if(trapHere)d.classList.add('trap');
     if(q){
       if(q.frozen) d.classList.add('frozen');
       if(q.debuffQueued) d.classList.add('debuff-queued');
       if(q.shield) d.classList.add('shield');
       if(q.bounty) d.classList.add('bounty');
-      const bd=(q.frozen?'❄️':'')+(q.debuffQueued?'⚠️':q.noTake?'🚫':'')+(q.shield?'🛡️':'')+(q.bounty?'★'+q.bounty:'');
-      d.innerHTML=`<span class="${q.c==='w'?'pw':'pb'}">${GLYPH[q.t]}</span>${bd?`<span class="bdg">${bd}</span>`:''}`;
+      const hidden=q.invisible&&q.c!==who;
+      const bd=(q.frozen?'❄️':'')+(q.debuffQueued?'⚠️':q.noTake?'🚫':'')+(q.shield?'🛡️':'')+(q.bounty?'★'+q.bounty:'')+(q.assassinMark?'☠️':'')+(q.insured?'💠':'');
+      if(!hidden)d.innerHTML=`<span class="${q.c==='w'?'pw':'pb'}">${GLYPH[q.t]}</span>${bd?`<span class="bdg">${bd}</span>`:''}`;
     }
+    const hiddenMark=(S.b||[]).some(row=>row.some(piece=>piece&&piece.invisible&&piece.c!==who&&piece.invisibleFrom&&piece.invisibleFrom[0]===r&&piece.invisibleFrom[1]===c));
+    if(hiddenMark){if(q&&!(q.invisible&&q.c!==who))d.innerHTML+='<span class="bdg">?</span>';else d.innerHTML='<span style="font-size:.65em;color:#fff;text-shadow:0 1px 3px #000">?</span>';}
+    else if(trapHere&&!q)d.innerHTML='<span style="font-size:.45em">⚠️</span>';
     d.onclick=()=>clickSq(r,c);
     board.appendChild(d);
   }
-  const who=local?S.turn:mine,opp=who==='w'?'b':'w',mt=myTurn()&&who===S.turn;
   $('opp').innerHTML=`<span class="lbl">${local?'Other player':'Opponent'}: ${S.pts[opp]} pts · ${S.h[opp].length} spell(s) · ${S.perks[opp].length} perk(s)${clk(opp)}</span><div class="buffs">${chips(opp)}</div>`;
   $('me').innerHTML=`<span class="lbl">You: <b style="color:var(--ink)">${S.pts[who]} pts</b> · ${S.perks[who].length} perk(s)${clk(who)}</span><div class="buffs">${chips(who)}</div>`;
   renderShop();
   $('hand').innerHTML='';
   S.h[who].forEach((id,i)=>{
-    const sp=SPELLS[id],cost=RAR[sp.r].s;
+    const sp=SPELLS[id],cost=minSpellCost(sp),maxCost=sp.dynamic==='insurance'?3:sp.dynamic==='invisibility'?8:cost;
     const cantAfford=S.pts[who]<cost;
     const b=document.createElement('button');
     const spellLocked=!!(S.pendingDebuff&&S.pendingDebuff.targetColor===S.turn);
     b.className='card'+(mt&&S.armed===i?' on':'')+((!mt||cantAfford||spellLocked||(S.tgt&&S.armed!==i))?' off':'');
     b.disabled=spellLocked;
     b.style.borderColor=RAR[sp.r].col;
-    const costLabel=cost===0?'<span style="color:#4caf6a;font-size:.74rem">free</span>':`<span style="color:${cantAfford?'#c0392b':'var(--accent)'};font-size:.74rem">costs ${cost}pt</span>`;
-    b.innerHTML=`<b>${sp.name}</b><i style="color:${RAR[sp.r].col}">${sp.r}</i>${costLabel}<span>${sp.desc}</span>`;
+    const costLabel=sp.dynamic?`<span style="color:var(--accent);font-size:.74rem">${sp.dynamic==='insurance'?'0–3':'3–8'} pts by piece</span>`:cost===0?'<span style="color:#4caf6a;font-size:.74rem">free</span>':`<span style="color:${cantAfford?'#c0392b':'var(--accent)'};font-size:.74rem">costs ${cost}pt</span>`;
+    const rarityLabel=sp.dynamic?'varies by piece':sp.r;
+    b.innerHTML=`<b>${sp.name}</b><i style="color:${RAR[sp.r].col}">${rarityLabel}</i>${costLabel}<span>${sp.desc}</span>`;
     b.onclick=()=>clickCard(i);
     $('hand').appendChild(b);
   });
@@ -500,8 +556,11 @@ function render(){
     :mt?`Your turn${local?' ('+name(S.turn)+')':''}${S.extra?' — extra move left':''}${S.tgt?' · choose spell target (tap the card to skip)':S.armed!==null?' · spell armed — it acts after your move':''}`
     :`Waiting for ${name(S.turn)}…`;
   $('msg').textContent=S.msg||'';
-  if(S.pendingDebuff){const who=S.pendingDebuff.targetColor==='w'?'White':'Black';$('note').textContent=`⚠️ Disarm pending for ${who}: finish your move; you cannot cast a spell before it activates.`;}
+  if(S.pendingDebuff){const target=S.pendingDebuff.targetColor==='w'?'White':'Black';$('note').textContent=`⚠️ Disarm pending for ${target}: finish your move; you cannot cast a spell before it activates.`;}
   else if(S.b&&S.b.some(row=>row.some(q=>q&&q.noTake&&q.c===S.turn))) $('note').textContent='🚫 Disarmed: the marked piece cannot capture during this turn.';
+  else if(S.tgt&&S.armed!==null&&SPELLS[S.h[S.turn][S.armed]].twoTarget&&S.spellFrom)$('note').textContent='Choose the second square to complete the spell.';
+  else if((S.traps||[]).length)$('note').textContent='⚠️ A trap is waiting on the board.';
+  else if(S.revenge&&S.revenge[who])$('note').textContent='⚔️ Revenge is active: your next captured piece pays you its value.';
   const disarmedNow=S.b&&S.b.some(row=>row.some(q=>q&&q.noTake&&q.c===S.turn));
   if(!S.pendingDebuff&&!disarmedNow&&!S.win&&mt&&!S.tgt&&S.armed===null) $('note').textContent='Spells take effect after you move: tap a card to arm it, then make your move.';
 }
