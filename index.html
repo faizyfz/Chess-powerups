@@ -75,7 +75,7 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
   <div id="note"></div>
   <div id="hand"></div>
 </div>
-<footer style="margin-top:12px;text-align:center;color:var(--muted);font:12px Arial,sans-serif;opacity:.75">Card Chess · Version 1.3</footer>
+<footer style="margin-top:12px;text-align:center;color:var(--muted);font:12px Arial,sans-serif;opacity:.75">Card Chess · Version 1.4</footer>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -514,7 +514,18 @@ function listenToRoom(){
     const room=snap.val();
     if(!room){showLobbyError('This room no longer exists.');return;}
     if(room.state){
-      S=room.state; sel=mode=null; openMenu=null;
+      S=room.state;
+
+// Rebuild the board as a complete 8x8 array.
+// Firebase may omit completely empty rows.
+S.b=Array.from({length:8},(_,r)=>
+  Array.from({length:8},(_,c)=>
+    S.b?.[r]?.[c] ?? null
+  )
+);
+
+sel=mode=null;
+openMenu=null;
       if($('game').hidden) start(); else render();
     } else if(room.guestUid && mine==='w') {
       const mins=Number(room.minutes)||0;
