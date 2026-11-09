@@ -544,24 +544,92 @@ $('host').onclick=async()=>{
 };
 $('joinBtn').onclick=async()=>{
   const id=$('join').value.trim().toUpperCase();
-  if(!id){showLobbyError('Enter your friend’s room code.');return;}
+
+  if(!id){
+    showLobbyError('Enter your friend’s room code.');
+    return;
+  }
+
   try{
-    showLobbyError('Joining room…');
+    showLobbyError('Connecting to room...');
+
     const user=await ensureFirebase();
     const ref=db.ref('rooms/'+id);
+
+    // First check whether the room actually exists.
+    const snap=await ref.get();
+    const room=snap.val();
+
+    if(!room){
+      showLobbyError('Room '+id+' does not exist in Firebase.');
+      return;
+    }
+
+    if(!room.hostUid){
+      showLobbyError('This room has invalid host information.');
+      return;
+    }
+
+    if(room.hostUid===user.uid){
+      showLobbyError('You cannot join your own room. Use another browser.');
+      return;
+    }
+
+    if(room.guestUid && room.guestUid!==user.uid){
+      showLobbyError('This room already has another guest.');
+      return;
+    }
+
+    showLobbyError('Room found! Joining...');
+
+    // Claim the guest slot safely.
     const result=await ref.transaction(room=>{
-      if(!room || room.hostUid===user.uid || (room.guestUid && room.guestUid!==user.uid)) return;
-      room.guestUid=user.uid; room.status='playing'; return room;
-    });
-    if(!result.committed){showLobbyError('Room not found or already full. Check the code.');return;}
-    roomCode=id; roomRef=ref; mine='b'; local=false;
-    ref.child('guestOnline').onDisconnect().set(false);
+      if(!room || !room.hostUid) return;
+
+      if(room.hostUid===user.uid) return;
+
+      if(room.guestUid && room.guestUid!==user.uid) return;
+
+      room.guestUid=user.uid;
+      room.status='playing';
+
+      return room;
+    },undefined,false);
+
+    if(!result.committed){
+      const latest=(await ref.get()).val();
+
+      if(!latest){
+        showLobbyError('The room was deleted.');
+      }else if(latest.hostUid===user.uid){
+        showLobbyError('You are already the host of this room.');
+      }else if(latest.guestUid && latest.guestUid!==user.uid){
+        showLobbyError('Another player joined this room first.');
+      }else{
+        showLobbyError('Firebase could not reserve the guest slot. Check database permissions.');
+      }
+
+      return;
+    }
+
+    roomCode=id;
+    roomRef=ref;
+    mine='b';
+    local=false;
+
+    await ref.child('guestOnline').onDisconnect().set(false);
     await ref.child('guestOnline').set(true);
+
     $('timer').disabled=true;
     $('code').textContent='Joined room: '+id;
-    showLobbyError('Connected. Waiting for the host to start…');
+
+    showLobbyError('Connected! Waiting for the host...');
     listenToRoom();
-  }catch(e){showLobbyError('Could not join game: '+e.message);}
+
+  }catch(e){
+    showLobbyError('Join error: '+e.message);
+    console.error('Multiplayer join error:',e);
+  }
 };
 </script>
 </body>
