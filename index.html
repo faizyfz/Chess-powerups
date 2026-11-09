@@ -75,7 +75,7 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
   <div id="note"></div>
   <div id="hand"></div>
 </div>
-<footer style="margin-top:12px;text-align:center;color:var(--muted);font:12px Arial,sans-serif;opacity:.75">Card Chess · Version 1.2</footer>
+<footer style="margin-top:12px;text-align:center;color:var(--muted);font:12px Arial,sans-serif;opacity:.75">Card Chess · Version 1.3</footer>
 </main>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
@@ -448,7 +448,9 @@ function renderShop(){
 function render(){
   if(!S) return;
   const flip=mine==='b'&&!local,board=$('board');board.innerHTML='';
-  const hl=sel?moves(...sel):[];
+  const hl=Array.isArray(sel)&&sel.length===2
+  ?moves(...sel).filter(m=>Array.isArray(m)&&m.length>=2)
+  :[];
   const tg=(S.tgt&&myTurn())?SPELLS[S.h[S.turn][S.armed]]:null;
   for(let i=0;i<64;i++){
     const r=flip?7-Math.floor(i/8):Math.floor(i/8),c=flip?7-i%8:i%8;
