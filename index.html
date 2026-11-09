@@ -1,0 +1,508 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Card Chess</title>
+<style>
+:root{--bg:#1d2a26;--panel:#263832;--ink:#eef3ea;--muted:#9bb0a5;--light:#d8c9a3;--dark:#7a8f6b;--accent:#e8b04a}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:Georgia,"Times New Roman",serif;display:flex;justify-content:center;padding:14px}
+main{width:100%;max-width:580px}
+h1{font-size:1.5rem;margin:0 0 10px;font-weight:600}
+button,input{font:inherit}
+button{background:var(--accent);color:#2a2008;border:0;border-radius:6px;padding:8px 12px;cursor:pointer}
+button:focus-visible,input:focus-visible{outline:3px solid #fff;outline-offset:2px}
+select{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var(--panel);color:var(--ink);font:inherit}
+.clk{font-variant-numeric:tabular-nums;color:var(--accent);font-weight:600}
+input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var(--panel);color:var(--ink);width:9em}
+.row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}
+.lbl{color:var(--muted);font-size:.85rem;margin-right:2px}
+#status{margin:6px 0 2px;min-height:1.3em;color:var(--accent)}
+#msg,#note{min-height:1.2em;font-size:.85rem;color:var(--muted)}
+#board{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));grid-template-rows:repeat(8,minmax(0,1fr));aspect-ratio:1;border:4px solid var(--panel);border-radius:4px;overflow:hidden}
+.sq{aspect-ratio:1;min-width:0;min-height:0;overflow:hidden;line-height:1;display:flex;align-items:center;justify-content:center;font-size:min(8vw,44px);cursor:pointer;position:relative;user-select:none}
+.sq.l{background:var(--light)}.sq.d{background:var(--dark)}
+.sq.sel{box-shadow:inset 0 0 0 4px var(--accent)}
+.sq.mv::after{content:"";width:28%;height:28%;border-radius:50%;background:rgba(232,176,74,.7);position:absolute}
+.sq.frozen{background-image:linear-gradient(rgba(120,190,255,.55),rgba(120,190,255,.55))}
+.sq.shield{box-shadow:inset 0 0 0 4px #3a86ff}
+.sq.tg{box-shadow:inset 0 0 0 4px #c0392b}
+.pw{color:#fff;text-shadow:0 0 2px #000,0 0 2px #000,0 0 2px #000}.pb{color:#111}
+.buffs{display:flex;flex-direction:column;gap:4px;width:100%}
+.buff{border-left:5px solid;background:var(--panel);border-radius:6px;padding:4px 9px;font-size:.8rem;line-height:1.3}
+.buff b{font-weight:600}.buff small{margin-left:6px;font-size:.7rem;text-transform:uppercase;letter-spacing:.04em}
+.buff span{display:block;color:var(--muted);font-size:.76rem}
+.bdg{position:absolute;top:1px;left:2px;font-size:.3em;line-height:1;color:#111;text-shadow:0 0 2px #fff;pointer-events:none}
+#legend{font-size:.78rem;color:var(--muted);margin-top:4px}
+#hand{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.card{background:var(--panel);border:3px solid;border-radius:8px;padding:7px 9px;width:calc(50% - 4px);min-width:140px;cursor:pointer;text-align:left;color:var(--ink)}
+.card b{display:block}.card i{display:block;font-size:.72rem;margin-bottom:3px}.card span{font-size:.78rem;color:var(--muted)}
+.card.on{background:#35504a}.card.off{opacity:.45;cursor:not-allowed}
+
+/* Shop */
+#shop{margin-top:8px}
+.shop-section{margin-bottom:6px}
+.shop-tier-btn{background:var(--panel);color:var(--ink);border:2px solid;border-radius:6px;padding:5px 10px;font-size:.82rem;cursor:pointer}
+.shop-tier-btn:disabled{opacity:.4;cursor:not-allowed}
+.shop-tier-btn.open{background:#35504a}
+.perk-menu{display:none;flex-direction:column;gap:4px;margin-top:4px;padding:6px;background:#1a2822;border-radius:6px;border:1px solid #3a5048}
+.perk-menu.visible{display:flex}
+.perk-item{background:var(--panel);border:2px solid;border-radius:6px;padding:6px 9px;cursor:pointer;text-align:left;color:var(--ink);font:inherit}
+.perk-item:disabled{opacity:.35;cursor:not-allowed}
+.perk-item b{display:block;font-size:.88rem}
+.perk-item span{font-size:.74rem;color:var(--muted)}
+.perk-item.owned{opacity:.4;cursor:not-allowed}
+</style>
+</head>
+<body>
+<main>
+<h1>Card Chess</h1>
+<div id="lobby">
+  <div class="row"><label class="lbl" for="timer">Host clock (per player):</label><select id="timer"><option value="0">No timer</option><option value="3">3 minutes</option><option value="5">5 minutes</option><option value="10">10 minutes</option></select></div>
+  <div class="row"><button id="host">Create game</button><span id="code"></span></div>
+  <div class="row"><input id="join" placeholder="Friend's code" aria-label="Friend's code"><button id="joinBtn">Join</button></div>
+  <div class="row"><button id="local">Play locally (same screen)</button></div>
+  <p id="lobbymsg"></p>
+</div>
+<div id="game" hidden>
+  <div id="opp" class="row"></div>
+  <div id="status"></div><div id="msg"></div>
+  <div id="board"></div>
+  <div id="legend">❄️ frozen (can't move) · 🛡️ shielded (can't be captured) · ★n bounty (+n pts if captured)</div>
+  <div id="me" class="row"></div>
+  <div id="shop"></div>
+  <div id="note"></div>
+  <div id="hand"></div>
+</div>
+</main>
+
+<script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+<script>
+/* ===== RARITIES: c=perk buy cost, s=spell cast cost ===== */
+const RAR={common:{c:1,s:0,col:'#9aa7a0'},uncommon:{c:2,s:1,col:'#4caf6a'},rare:{c:3,s:2,col:'#4f8dff'},epic:{c:5,s:3,col:'#b86bff'},legendary:{c:10,s:5,col:'#f0a020'}};
+
+/* ===== PIECE VALUES (real chess values) ===== */
+const VAL={p:1,n:3,b:3,r:5,q:9,k:0};
+
+/* ===== PERKS ===== */
+const PERKS={
+  rookSac:{r:'rare',name:'Rook Sacrifice',desc:'Rooks may pass through one enemy pawn to capture the piece behind it, but the rook is destroyed.'},
+  bishHop:{r:'common',name:'Bishop Hop',desc:'Bishops may also step 1 square straight (move only, no capture).'},
+  rookHop:{r:'common',name:'Rook Hop',desc:'Rooks may also step 1 square diagonally (move only, no capture).'},
+  wall:{r:'rare',name:'Pawn Wall',desc:'Pawns guarded by another pawn cannot be captured by pieces (only by pawns).'},
+  knightHop:{r:'common',name:'Knight Hop',desc:'Knights may also leap exactly 2 squares straight or diagonally (move only).'},
+  pawnSide:{r:'common',name:'Pawn Shuffle',desc:'Pawns may step 1 square sideways.'},
+  kingStep:{r:'uncommon',name:'Royal Stride',desc:'Your king may also jump exactly 2 squares in any direction (move only).'},
+  knightStep:{r:'uncommon',name:'Knight Steps',desc:'Knights may also step 1 square in any direction (move only).'},
+  pawnBack:{r:'uncommon',name:'Rear Guard',desc:'Pawns may capture diagonally backwards.'},
+  brawler:{r:'uncommon',name:'Brawler Pawns',desc:'Pawns may capture straight ahead.'},
+  pawnFury:{r:'rare',name:'Pawn Fury',desc:'Pawns may also capture sideways.'},
+  pawn2:{r:'rare',name:'Sprinter Pawns',desc:'Pawns can always move two squares (and can always be taken en passant).'},
+  epAny:{r:'uncommon',name:'Eagle Eye',desc:'Your pawns can take en passant even after an enemy pawn moves just one square.'},
+  rookPhase:{r:'rare',name:'Phantom Rooks',desc:'Rooks may slide through one of your own pieces per move (can still capture beyond it).'},
+  grand:{r:'epic',name:'Grand Knight',desc:'Knights may also leap 2 squares straight or diagonally, and capture there.'},
+  bishPhase:{r:'rare',name:'Phantom Bishops',desc:'Bishops may slide through one of your own pieces per move (can still capture beyond it).'},
+  escape:{r:'epic',name:'Desperate Flight',desc:'When your king starts your turn in check, you get 2 moves.'},
+  fork:{r:'epic',name:'Royal Fork',desc:'A knight that checks the king and also forks other pieces captures all of those pieces.'},
+  queenKnight:{r:'epic',name:'Amazon',desc:'Your queen also moves like a knight.'},
+  ghost:{r:'legendary',name:'Spectral Queen',desc:'Your queen can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
+  legion:{r:'legendary',name:'Spectral Legion',desc:'Your rooks and bishops can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
+  guard:{r:'legendary',name:"King's Guard",desc:'Pieces standing next to your king cannot be captured.'}
+};
+
+/* ===== SPELLS: 2-card cycling hand, drawn fresh each turn ===== */
+const SPELLS={
+  summon:{r:'uncommon',name:'Summon',desc:'Place a pawn on an empty square in your back two rows.',t:'empty',
+    ok:(r,c,p,me)=>me==='w'?r>=6:r<=1, run:(r,c,p,me)=>{S.b[r][c]={t:'p',c:me}}},
+  pilfer:{r:'common',name:'Pilfer',desc:'Steal 1 point from your opponent.',t:null,
+    run:(r,c,p,me)=>{const o=me==='w'?'b':'w';if(S.pts[o]>0){S.pts[o]--;S.pts[me]++}}},
+  bounty:{r:'common',name:'Bounty',desc:'Mark an enemy piece: capturing it pays +2 points.',t:'enemy',
+    run:(r,c,p)=>{p.bounty=2}},
+  shield:{r:'uncommon',name:'Shield',desc:'One of your pieces (not the king) cannot be captured until your next turn.',t:'own',
+    ok:(r,c,p)=>p.t!=='k', run:(r,c,p)=>{p.shield=1}},
+  knighting:{r:'rare',name:'Knighting',desc:'Turn one of your pawns into a knight.',t:'own',
+    ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.t='n'}},
+  assassin:{r:'uncommon',name:'Assassin',desc:'Remove an enemy pawn.',t:'enemy',
+    ok:(r,c,p)=>p.t==='p'&&!p.shield,run:(r,c)=>{S.b[r][c]=null}},
+  freeze:{r:'rare',name:'Freeze',desc:'An enemy piece cannot move on their next turn.',t:'enemy',
+    run:(r,c,p)=>{p.frozen=1}}
+};
+
+const SPELL_KEYS=Object.keys(SPELLS);
+
+/* ================= engine ================= */
+const GLYPH={p:'♟',n:'♞',b:'♝',r:'♜',q:'♛',k:'♚'};
+const $=id=>document.getElementById(id);
+const D4=[[1,0],[-1,0],[0,1],[0,-1]],X4=[[1,1],[1,-1],[-1,1],[-1,-1]];
+const KN=[[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]];
+const HOP=[[2,0],[-2,0],[0,2],[0,-2],[2,2],[2,-2],[-2,2],[-2,-2]];
+const ALL8=D4.concat(X4);
+let S,mine=null,conn=null,sel=null,mode=null,local=false;
+let openMenu=null;
+
+const has=(c,id)=>S.perks[c].includes(id);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const pool=(T,r)=>Object.keys(T).filter(k=>T[k].r===r);
+
+function dealHand(){
+  const all=SPELL_KEYS.slice();
+  const a=pick(all);
+  const rest=all.filter(k=>k!==a);
+  const b=pick(rest);
+  return [a,b];
+}
+
+function newGame(mins){
+  const back='rnbqkbnr',b=Array.from({length:8},()=>Array(8).fill(null));
+  for(let c=0;c<8;c++){b[0][c]={t:back[c],c:'b'};b[1][c]={t:'p',c:'b'};b[6][c]={t:'p',c:'w'};b[7][c]={t:back[c],c:'w'}}
+  return {b,turn:'w',played:false,extra:0,win:null,ep:null,msg:'',
+    pts:{w:2,b:2},perks:{w:[],b:[]},h:{w:dealHand(),b:dealHand()},armed:null,tgt:false,why:null,
+    t:mins?{w:mins*60000,b:mins*60000}:null};
+}
+
+function nearKing(q,r,c){
+  return ALL8.some(([y,x])=>{const n=S.b[r+y]?.[c+x];return n&&n.t==='k'&&n.c===q.c});
+}
+function guarded(q,r,c){
+  const d=q.c==='w'?1:-1;
+  return [-1,1].some(x=>{const n=S.b[r+d]?.[c+x];return n&&n.t==='p'&&n.c===q.c});
+}
+function canTake(a,q,r,c){
+  if(!q||q.c===a.c||q.shield) return false;
+  if(q.t!=='k'){
+    if(q.t==='p'&&a.t!=='p'&&has(q.c,'wall')&&guarded(q,r,c)) return false;
+    if(has(q.c,'guard')&&nearKing(q,r,c)) return false;
+  }
+  return true;
+}
+
+function moves(r,c){
+  const p=S.b[r][c],o=[];
+  if(!p||p.frozen) return o;
+  const me=p.c,H=id=>has(me,id);
+  const inb=(y,x)=>y>=0&&y<8&&x>=0&&x<8;
+  const free=(y,x)=>inb(y,x)&&!S.b[y][x];
+  const mv=(y,x)=>{if(free(y,x))o.push([y,x])};
+  const cap=(y,x)=>{if(inb(y,x)&&canTake(p,S.b[y][x],y,x))o.push([y,x])};
+  const add=(y,x)=>{if(free(y,x))o.push([y,x]);else cap(y,x)};
+  const slide=(dirs,thruOwn,thruEnemy,sac,lite)=>{
+    for(const[y,x]of dirs){
+      let a=r+y,b=c+x,hop=false,passed=false,own=0;
+      while(inb(a,b)){
+        const q=S.b[a][b];
+        if(!q){if(!hop)o.push([a,b])}
+        else if(q.c===me){if(!thruOwn||own>=1)break;own++}
+        else{
+          if(canTake(p,q,a,b)&&!(lite&&passed))o.push(hop?[a,b,'sac']:[a,b]);
+          if(thruEnemy){passed=true}
+          else if(sac&&!hop&&q.t==='p')hop=true;
+          else break;
+        }
+        a+=y;b+=x;
+      }
+    }
+  };
+  const knight=()=>KN.forEach(([y,x])=>add(r+y,c+x));
+  if(p.t==='p'){
+    const d=me==='w'?-1:1,st=me==='w'?6:1;
+    if(free(r+d,c)){
+      o.push([r+d,c]);
+      if((r===st||H('pawn2'))&&free(r+2*d,c)) o.push([r+2*d,c,'dbl']);
+    }
+    for(const x of[-1,1]){
+      cap(r+d,c+x);
+      if(H('pawnBack')) cap(r-d,c+x);
+      const e=S.ep;
+      if(e&&e.c!==me&&e.sq[0]===r+d&&e.sq[1]===c+x&&(e.dbl||H('epAny'))){
+        const t=S.b[e.pawn[0]][e.pawn[1]];
+        if(t&&canTake(p,t,e.pawn[0],e.pawn[1])) o.push([r+d,c+x,'ep']);
+      }
+    }
+    if(H('brawler')) cap(r+d,c);
+    if(H('pawnFury')){cap(r,c-1);cap(r,c+1)}
+    if(H('pawnSide')){mv(r,c-1);mv(r,c+1)}
+  }else if(p.t==='n'){
+    knight();
+    if(H('knightStep')) ALL8.forEach(([y,x])=>mv(r+y,c+x));
+    if(H('knightHop')||H('grand')) HOP.forEach(([y,x])=>(H('grand')?add:mv)(r+y,c+x));
+  }else if(p.t==='k'){
+    ALL8.forEach(([y,x])=>add(r+y,c+x));
+    if(H('kingStep')) HOP.forEach(([y,x])=>mv(r+y,c+x));
+  }else if(p.t==='b'){
+    slide(X4,H('bishPhase'),H('legion'),false,true);
+    if(H('bishHop')) D4.forEach(([y,x])=>mv(r+y,c+x));
+  }else if(p.t==='r'){
+    slide(D4,H('rookPhase'),H('legion'),H('rookSac'),true);
+    if(H('rookHop')) X4.forEach(([y,x])=>mv(r+y,c+x));
+  }else if(p.t==='q'){
+    slide(ALL8,false,H('ghost'),false,true);
+    if(H('queenKnight')) knight();
+  }
+  return o;
+}
+
+function inCheck(col){
+  let k=null;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){const q=S.b[r][c];if(q&&q.t==='k'&&q.c===col)k=[r,c]}
+  if(!k) return false;
+  for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+    const q=S.b[r][c];
+    if(q&&q.c!==col&&moves(r,c).some(m=>m[0]===k[0]&&m[1]===k[1])) return true;
+  }
+  return false;
+}
+
+let clockOwner=null,stamp=0;
+function settle(){
+  if(!S||!S.t||S.win||!clockOwner) return;
+  const n=Date.now();S.t[clockOwner]=Math.max(0,S.t[clockOwner]-(n-stamp));stamp=n;
+}
+function clockReset(){clockOwner=(S&&S.t&&!S.win)?S.turn:null;stamp=Date.now()}
+const remMs=c=>!S||!S.t?0:Math.max(0,S.t[c]-(c===clockOwner&&!S.win?Date.now()-stamp:0));
+const fmtT=ms=>{const t=Math.ceil(ms/1000);return Math.floor(t/60)+':'+String(t%60).padStart(2,'0')};
+const clk=c=>S.t?` · ⏱ <span class="clk" data-c="${c}">${fmtT(remMs(c))}</span>`:'';
+setInterval(()=>{
+  if(!S||!S.t) return;
+  document.querySelectorAll('.clk').forEach(e=>e.textContent=fmtT(remMs(e.dataset.c)));
+  if(!S.win&&remMs(S.turn)<=0){
+    const loser=S.turn,mineNow=local||mine===loser;
+    settle();S.win=loser==='w'?'b':'w';S.why='time';S.msg='';S.armed=null;S.tgt=false;
+    if(mineNow) sync(); else render();
+  }
+},250);
+
+function endTurn(){
+  settle();
+  const me=S.turn,op=me==='w'?'b':'w';
+  for(const row of S.b)for(const q of row){
+    if(!q) continue;
+    if(q.c===me) delete q.frozen;
+    if(q.c===op) delete q.shield;
+  }
+  S.turn=op;S.played=false;S.extra=0;S.armed=null;S.tgt=false;
+  S.h[op]=dealHand();
+  if(has(op,'escape')&&inCheck(op)){S.extra=1;S.msg='King in check — Desperate Flight gives 2 moves!'}
+  else S.msg='';
+  clockReset();
+}
+
+function doMove(a,b,fl){
+  S.msg='';
+  const p=S.b[a[0]][a[1]],me=p.c;
+  let cap=S.b[b[0]][b[1]];
+  if(fl==='ep'){const e=S.ep.pawn;cap=S.b[e[0]][e[1]];S.b[e[0]][e[1]]=null}
+  S.b[a[0]][a[1]]=null;
+  S.b[b[0]][b[1]]=fl==='sac'?null:p;
+  const take=q=>{if(!q)return;S.pts[me]+=VAL[q.t]+(q.bounty||0);if(q.t==='k')S.win=me};
+  take(cap);
+  if(fl==='sac') S.msg='Rook sacrificed to make the capture.';
+  S.ep=null;
+  if(p.t==='p'&&a[1]===b[1]){
+    const d=me==='w'?-1:1;
+    if(fl==='dbl') S.ep={sq:[a[0]+d,a[1]],pawn:b,c:me,dbl:true};
+    else if(b[0]-a[0]===d) S.ep={sq:a,pawn:b,c:me,dbl:false};
+  }
+  if(S.win) return;
+  if(fl!=='sac'&&p.t==='p'&&(b[0]===0||b[0]===7)) p.t='q';
+  if(fl!=='sac'&&p.t==='n'&&has(me,'fork')){
+    const tg=moves(b[0],b[1]).filter(m=>{const q=S.b[m[0]][m[1]];return q&&q.c!==me});
+    if(tg.length>1&&tg.some(m=>S.b[m[0]][m[1]].t==='k')){
+      tg.forEach(m=>{const q=S.b[m[0]][m[1]];if(q.t!=='k'){S.b[m[0]][m[1]]=null;take(q)}});
+      S.msg='Royal Fork! All forked pieces captured.';
+    }
+  }
+  if(S.extra>0) S.extra--; else finishTurn();
+}
+
+function finishTurn(){
+  const me=S.turn,id=S.armed!=null?S.h[me][S.armed]:null;
+  if(!id){endTurn();return}
+  const card=SPELLS[id],cost=RAR[card.r].s;
+  const done=m=>{endTurn();S.msg=(S.msg?S.msg+' ':'')+m};
+  if(S.pts[me]<cost){S.h[me].splice(S.armed,1);done(`${card.name} fizzled — not enough points.`);return}
+  if(card.t===null){
+    S.pts[me]-=cost;card.run(null,null,null,me);S.h[me].splice(S.armed,1);
+    done(`${card.name} took effect.`);return;
+  }
+  let any=false;
+  for(let r=0;r<8&&!any;r++)for(let c=0;c<8;c++)if(validTarget(card,r,c)){any=true;break}
+  if(!any){S.h[me].splice(S.armed,1);done(`${card.name} fizzled — no valid target.`);return}
+  S.tgt=true;S.msg=`Move made — now pick a target for ${card.name}.`;
+}
+
+/* ================= interaction ================= */
+const myTurn=()=>!S.win&&(local||mine===S.turn);
+const validTarget=(card,r,c)=>{
+  const q=S.b[r][c],me=S.turn;
+  if(card.t==='own'&&!(q&&q.c===me)) return false;
+  if(card.t==='enemy'&&!(q&&q.c!==me)) return false;
+  if(card.t==='empty'&&q) return false;
+  return !card.ok||card.ok(r,c,q,me);
+};
+function sync(){ if(conn&&conn.open) conn.send(S); render(); }
+
+function clickSq(r,c){
+  if(!S||!myTurn()) return;
+  if(S.tgt){
+    const me=S.turn,card=SPELLS[S.h[me][S.armed]];
+    if(!validTarget(card,r,c)) return;
+    S.pts[me]-=RAR[card.r].s;
+    card.run(r,c,S.b[r][c],me);
+    S.h[me].splice(S.armed,1);sel=null;
+    endTurn();S.msg=`${card.name} took effect.`;sync();return;
+  }
+  if(sel){
+    const m=moves(...sel).find(m=>m[0]===r&&m[1]===c);
+    if(m){doMove(sel,[r,c],m[2]);sel=null;sync();return}
+  }
+  const q=S.b[r][c];
+  sel=(q&&q.c===S.turn)?[r,c]:null;render();
+}
+
+function clickCard(i){
+  if(!S||!myTurn()) return;
+  const me=S.turn,card=SPELLS[S.h[me][i]],cost=RAR[card.r].s;
+  if(S.tgt){ 
+    if(S.armed===i){endTurn();S.msg=`${card.name} skipped.`;sync()}
+    return;
+  }
+  if(S.pts[me]<cost){S.msg=`Need ${cost} pt${cost!==1?'s':''} to cast ${card.name}.`;render();return}
+  S.armed=(S.armed===i)?null:i;
+  S.msg=S.armed!==null?`${card.name} armed — it takes effect after your move.`:'';
+  render();
+}
+
+function buyPerk(key){
+  if(!myTurn()||S.tgt) return;
+  const me=S.turn,cost=RAR[PERKS[key].r].c;
+  if(S.pts[me]<cost||has(me,key)) return;
+  S.perks[me].push(key);
+  S.pts[me]-=cost;
+  S.msg='Bought perk: '+PERKS[key].name;
+  openMenu=null;
+  sync();
+}
+
+function toggleMenu(tier){
+  openMenu=(openMenu===tier)?null:tier;
+  render();
+}
+
+/* ================= rendering ================= */
+const chips=c=>S.perks[c].map(id=>{
+  const P=PERKS[id],col=RAR[P.r].col;
+  return `<div class="buff" style="border-color:${col}"><b>${P.name}</b><small style="color:${col}">${P.r}</small><span>${P.desc}</span></div>`}).join('')||'<span class="lbl">no perks yet</span>';
+
+function renderShop(){
+  const me=local?S.turn:mine,mt=myTurn()&&me===S.turn;
+  const tiers=['common','uncommon','rare','epic','legendary'];
+  let html='<div class="shop-section"><div class="row" style="gap:5px;flex-wrap:wrap">';
+  for(const tier of tiers){
+    const cost=RAR[tier].c;
+    const canAfford=mt&&S.pts[me]>=cost;
+    const isOpen=openMenu===tier;
+    html+=`<button class="shop-tier-btn${isOpen?' open':''}" style="border-color:${RAR[tier].col}" ${canAfford||isOpen?'':'disabled'} data-tier="${tier}">${tier} · ${cost}pt</button>`;
+  }
+  html+='</div>';
+
+  for(const tier of tiers){
+    const perksInTier=pool(PERKS,tier);
+    const cost=RAR[tier].c;
+    const canAfford=mt&&S.pts[me]>=cost;
+    const isOpen=openMenu===tier;
+    html+=`<div class="perk-menu${isOpen?' visible':''}" id="menu-${tier}">`;
+    for(const key of perksInTier){
+      const P=PERKS[key];
+      const owned=has(me,key);
+      const disabled=owned||!canAfford;
+      html+=`<button class="perk-item${owned?' owned':''}" style="border-color:${RAR[tier].col}" data-perkkey="${key}" ${disabled?'disabled':''}>`+
+        `<b>${P.name}</b><span>${P.desc}</span></button>`;
+    }
+    html+='</div>';
+  }
+  html+='</div>';
+  $('shop').innerHTML=html;
+}
+
+function render(){
+  if(!S) return;
+  const flip=mine==='b'&&!local,board=$('board');board.innerHTML='';
+  const hl=sel?moves(...sel):[];
+  const tg=(S.tgt&&myTurn())?SPELLS[S.h[S.turn][S.armed]]:null;
+  for(let i=0;i<64;i++){
+    const r=flip?7-Math.floor(i/8):Math.floor(i/8),c=flip?7-i%8:i%8;
+    const q=S.b[r][c],d=document.createElement('div');
+    d.className='sq '+((r+c)%2?'d':'l');
+    if(sel&&sel[0]===r&&sel[1]===c) d.classList.add('sel');
+    if(hl.some(m=>m[0]===r&&m[1]===c)) d.classList.add('mv');
+    if(tg&&validTarget(tg,r,c)) d.classList.add('tg');
+    if(q){
+      if(q.frozen) d.classList.add('frozen');
+      if(q.shield) d.classList.add('shield');
+      if(q.bounty) d.classList.add('bounty');
+      const bd=(q.frozen?'❄️':'')+(q.shield?'🛡️':'')+(q.bounty?'★'+q.bounty:'');
+      d.innerHTML=`<span class="${q.c==='w'?'pw':'pb'}">${GLYPH[q.t]}</span>${bd?`<span class="bdg">${bd}</span>`:''}`;
+    }
+    d.onclick=()=>clickSq(r,c);
+    board.appendChild(d);
+  }
+  const who=local?S.turn:mine,opp=who==='w'?'b':'w',mt=myTurn()&&who===S.turn;
+  $('opp').innerHTML=`<span class="lbl">${local?'Other player':'Opponent'}: ${S.pts[opp]} pts · ${S.h[opp].length} spell(s) · ${S.perks[opp].length} perk(s)${clk(opp)}</span><div class="buffs">${chips(opp)}</div>`;
+  $('me').innerHTML=`<span class="lbl">You: <b style="color:var(--ink)">${S.pts[who]} pts</b> · ${S.perks[who].length} perk(s)${clk(who)}</span><div class="buffs">${chips(who)}</div>`;
+  renderShop();
+  $('hand').innerHTML='';
+  S.h[who].forEach((id,i)=>{
+    const sp=SPELLS[id],cost=RAR[sp.r].s;
+    const cantAfford=S.pts[who]<cost;
+    const b=document.createElement('button');
+    b.className='card'+(mt&&S.armed===i?' on':'')+((!mt||cantAfford||(S.tgt&&S.armed!==i))?' off':'');
+    b.style.borderColor=RAR[sp.r].col;
+    const costLabel=cost===0?'<span style="color:#4caf6a;font-size:.74rem">free</span>':`<span style="color:${cantAfford?'#c0392b':'var(--accent)'};font-size:.74rem">costs ${cost}pt</span>`;
+    b.innerHTML=`<b>${sp.name}</b><i style="color:${RAR[sp.r].col}">${sp.r}</i>${costLabel}<span>${sp.desc}</span>`;
+    b.onclick=()=>clickCard(i);
+    $('hand').appendChild(b);
+  });
+  const name=c=>c==='w'?'White':'Black';
+  $('status').textContent=S.win?(S.why==='time'?`${name(S.win)} wins on time.`:`${name(S.win)} captured the king and wins.`)
+    :mt?`Your turn${local?' ('+name(S.turn)+')':''}${S.extra?' — extra move left':''}${S.tgt?' · choose spell target (tap the card to skip)':S.armed!==null?' · spell armed — it acts after your move':''}`
+    :`Waiting for ${name(S.turn)}…`;
+  $('msg').textContent=S.msg||'';
+  if(!S.win&&mt&&!S.tgt&&S.armed===null) $('note').textContent='Spells take effect after you move: tap a card to arm it, then make your move.';
+}
+
+document.addEventListener('click',e=>{
+  const ch=e.target.closest('.chip');
+  if(ch){const P=PERKS[ch.dataset.id];$('note').textContent=`${P.name} (${P.r}): ${P.desc}`}
+
+  const tb=e.target.closest('[data-tier]');
+  if(tb&&!tb.disabled){toggleMenu(tb.dataset.tier);return}
+
+  const pi=e.target.closest('[data-perkkey]');
+  if(pi&&!pi.disabled){buyPerk(pi.dataset.perkkey);return}
+});
+
+/* ================= networking ================= */
+function start(){$('lobby').hidden=true;$('game').hidden=false;clockReset();render()}
+function wire(){
+  conn.on('data',d=>{S=d;sel=mode=null;openMenu=null;clockReset();if($('game').hidden)start();else render()});
+  conn.on('close',()=>{$('status').textContent='Opponent disconnected.'});
+}
+$('local').onclick=()=>{local=true;const mins=+$('timer').value||0;S=newGame(mins);start()};
+$('host').onclick=()=>{
+  const id='cc'+Math.random().toString(36).slice(2,7),peer=new Peer(id);
+  const mins=+$('timer').value||0;$('timer').disabled=true;
+  $('code').textContent='Creating…';
+  peer.on('open',()=>{$('code').textContent='Your code: '+id+' — send it to your friend'});
+  peer.on('error',e=>{$('lobbymsg').textContent='Connection problem: '+e.type});
+  peer.on('connection',c=>{conn=c;mine='w';conn.on('open',()=>{wire();S=newGame(mins);start();conn.send(S)})});
+};
+$('joinBtn').onclick=()=>{
+  const id=$('join').value.trim();if(!id)return;
+  const peer=new Peer();
+  peer.on('error',e=>{$('lobbymsg').textContent='Could not connect: '+e.type});
+  peer.on('open',()=>{conn=peer.connect(id);mine='b';conn.on('open',wire)});
+};
+</script>
+</body>
+</html>
