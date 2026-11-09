@@ -37,6 +37,9 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
 #legend{font-size:.78rem;color:var(--muted);margin-top:4px}
 .debuff-queued{outline:3px dashed #e8b04a;outline-offset:-4px}
 .sq.trap{box-shadow:inset 0 0 0 3px #e67e22}
+.sq.king-check{outline:4px solid #e53935;outline-offset:-4px}
+.sq.threatened-near{background-image:linear-gradient(rgba(255,70,70,.34),rgba(255,70,70,.34))}
+.sq.intel-ghost{box-shadow:inset 0 0 0 3px #b86bff;background-image:linear-gradient(rgba(184,107,255,.22),rgba(184,107,255,.22))}
 #version{margin:12px 0 2px;text-align:center;font: .7rem Arial,sans-serif;color:var(--muted);opacity:.7}
 #hand{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
 .card{background:var(--panel);border:3px solid;border-radius:8px;padding:7px 9px;width:calc(50% - 4px);min-width:140px;cursor:pointer;text-align:left;color:var(--ink)}
@@ -72,66 +75,62 @@ input{padding:9px;border-radius:6px;border:1px solid var(--muted);background:var
   <div id="opp" class="row"></div>
   <div id="status"></div><div id="msg"></div>
   <div id="board"></div>
-  <div id="legend">⚠️ disarmed (cannot capture) · 🛡️ shielded · ☠️ marked for death · 💠 insured · ? invisible · ★n bounty (+n pts if captured)</div>
+  <div id="legend">❄️ frozen (loses next move) · ⚠️ disarmed (cannot capture) · 🛡️ shielded · ☠️ marked for death · 💠 insured · ? invisible · ★n bounty (+n pts if captured)</div>
   <div id="me" class="row"></div>
   <div id="shop"></div>
   <div id="note"></div>
   <div id="hand"></div>
 </div>
-<div id="version">Card Chess · Version 1.2</div>
+<div id="version">Card Chess · Version 1.9</div>
 </main>
 
 <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
 <script>
 /* ===== RARITIES: c=perk buy cost, s=spell cast cost ===== */
-const RAR={common:{c:1,s:1,col:'#9aa7a0'},uncommon:{c:2,s:2,col:'#4caf6a'},rare:{c:3,s:3,col:'#4f8dff'},epic:{c:5,s:5,col:'#b86bff'},legendary:{c:10,s:8,col:'#f0a020'}};
+const RAR={common:{c:1,s:1,col:'#9aa7a0',weight:30},uncommon:{c:2,s:2,col:'#4caf6a',weight:25},rare:{c:3,s:3,col:'#4f8dff',weight:20},epic:{c:5,s:5,col:'#b86bff',weight:15},legendary:{c:10,s:8,col:'#f0a020',weight:10}};
 
 /* ===== PIECE VALUES (real chess values) ===== */
 const VAL={p:1,n:3,b:3,r:5,q:9,k:0};
 
 /* ===== PERKS ===== */
 const PERKS={
-  rookSac:{r:'rare',name:'Rook Sacrifice',desc:'Rooks may pass through one enemy pawn to capture the piece behind it, but the rook is destroyed.'},
+  rookSac:{r:'uncommon',name:'Rook Sacrifice',desc:'Rooks may pass through one enemy pawn to capture the piece behind it, but the rook is destroyed.'},
   bishHop:{r:'common',name:'Bishop Hop',desc:'Bishops may also step 1 square straight (move only, no capture).'},
   rookHop:{r:'common',name:'Rook Hop',desc:'Rooks may also step 1 square diagonally (move only, no capture).'},
   wall:{r:'rare',name:'Pawn Wall',desc:'Pawns guarded by another pawn cannot be captured by pieces (only by pawns).'},
-  knightHop:{r:'common',name:'Knight Hop',desc:'Knights may also leap exactly 2 squares straight or diagonally (move only).'},
-  pawnSide:{r:'common',name:'Pawn Shuffle',desc:'Pawns may step 1 square sideways.'},
-  kingStep:{r:'uncommon',name:'Royal Stride',desc:'Your king may also jump exactly 2 squares in any direction (move only).'},
   knightStep:{r:'uncommon',name:'Knight Steps',desc:'Knights may also step 1 square in any direction (move only).'},
-  pawnBack:{r:'uncommon',name:'Rear Guard',desc:'Pawns may capture diagonally backwards.'},
-  brawler:{r:'uncommon',name:'Brawler Pawns',desc:'Pawns may capture straight ahead.'},
-  pawnFury:{r:'rare',name:'Pawn Fury',desc:'Pawns may also capture sideways.'},
+  castling:{r:'common',name:'Castling Rights',desc:'Unlock standard chess castling for your king and rooks. Costs 1 point in the shop. One use per side, if neither piece has moved and the path is clear.'},
   pawn2:{r:'rare',name:'Sprinter Pawns',desc:'Pawns can always move two squares (and can always be taken en passant).'},
+  delayedIntel:{r:'common',name:'Delayed Intel',desc:'When your opponent moves their king, its new square is hidden from you for your next turn. A marker shows its previous square; capture the king if you find its real square.'},
+  pawnJump:{r:'common',name:'Pawn Jump',desc:'From its starting rank, a pawn may jump two squares over an enemy pawn, capturing that pawn on the way.'},
   epAny:{r:'uncommon',name:'Eagle Eye',desc:'Your pawns can take en passant even after an enemy pawn moves just one square.'},
-  rookPhase:{r:'rare',name:'Phantom Rooks',desc:'Rooks may slide through one of your own pieces per move (can still capture beyond it).'},
+  rookPhase:{r:'rare',name:'Phantom Rooks',desc:'Rooks may pass through one friendly piece and move one square beyond it. Cannot capture by passing through.'},
   grand:{r:'epic',name:'Grand Knight',desc:'Knights may also leap 2 squares straight or diagonally, and capture there.'},
-  bishPhase:{r:'rare',name:'Phantom Bishops',desc:'Bishops may slide through one of your own pieces per move (can still capture beyond it).'},
-  escape:{r:'epic',name:'Desperate Flight',desc:'When your king starts your turn in check, you get 2 moves.'},
-  fork:{r:'epic',name:'Royal Fork',desc:'A knight that checks the king and also forks other pieces captures all of those pieces.'},
+  bishPhase:{r:'rare',name:'Phantom Bishops',desc:'Bishops may pass through one friendly piece and move one square beyond it. Cannot capture by passing through.'},
+  escape:{r:'legendary',name:'Desperate Flight',desc:'When your king starts your turn in check, you get 2 moves.'},
+  fork:{r:'epic',name:'Royal Fork',desc:'When your knight gives check while forking other pieces, mark the forked pieces. If the knight survives until your next turn, all marked pieces are captured.'},
   queenKnight:{r:'epic',name:'Amazon',desc:'Your queen also moves like a knight.'},
   ghost:{r:'legendary',name:'Spectral Queen',desc:'Your queen can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
   legion:{r:'legendary',name:'Spectral Legion',desc:'Your rooks and bishops can slide through enemy pieces, but cannot capture anything beyond the first piece in its path.'},
   guard:{r:'legendary',name:"King's Guard",desc:'Pieces standing next to your king cannot be captured.'},
-  pawnWard:{r:'common',name:'Spellproof Pawns',desc:'All your pawns are immune to enemy spells, including Bounty, Assassin’s Mark, Disarm and Trap.'},
+  pawnWard:{r:'epic',name:'Spellproof Pawns',desc:'All your pawns are immune to enemy spells, including Bounty, Assassin’s Mark, Disarm and Trap.'},
   bodyguard:{r:'uncommon',name:'Bodyguard',desc:'Your pieces next to your king cannot be captured by enemy pawns.'},
   heavyArmor:{r:'rare',name:'Heavy Armor',desc:'Your rooks cannot be captured by enemy pawns.'},
-  promotionMaster:{r:'epic',name:'Promotion Master',desc:'Your pawns may promote to a queen, rook, bishop or knight.'},
-  warChest:{r:'legendary',name:'War Chest',desc:'Gain 1 extra point at the start of each of your turns.'}
+  promotionMaster:{r:'uncommon',name:'Promotion Master',desc:'Your pawns may promote to a queen, rook, bishop or knight.'},
+  warChest:{r:'legendary',name:'War Chest',desc:'Gain 1 extra point at the start of each of your turns.'},
+  archbishop:{r:'epic',name:'Archbishop',desc:'Enemy bishops cannot move onto the same file as any of your bishops.'}
 };
 
 /* ===== SPELLS: 2-card cycling hand, drawn fresh each turn ===== */
 const SPELLS={
   pilfer:{r:'common',name:'Pilfer',desc:'Steal 1 point from your opponent.',t:null,run:(r,c,p,me)=>{const o=me==='w'?'b':'w';if(S.pts[o]>0){S.pts[o]--;S.pts[me]++}}},
-  revenge:{r:'uncommon',name:'Revenge',desc:'The next time one of your pieces is captured, gain points equal to its value.',t:null,run:(r,c,p,me)=>{S.revenge[me]=1}},
+  compensation:{r:'uncommon',name:'Compensation',desc:'The next time one of your pieces is captured, gain points equal to its value.',t:null,run:(r,c,p,me)=>{S.compensation[me]=1}},
   bounty:{r:'common',name:'Bounty',desc:'Mark an enemy piece: capturing it pays +2 points.',t:'enemy',run:(r,c,p)=>{p.bounty=2}},
   shield:{r:'uncommon',name:'Shield',desc:'One of your pieces (not the king) cannot be captured until your next turn.',t:'own',ok:(r,c,p)=>p.t!=='k',run:(r,c,p)=>{p.shield=1}},
   knighting:{r:'rare',name:'Knighting',desc:'Turn one of your pawns into a knight.',t:'own',ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.t='n'}},
   assassinMark:{r:'rare',name:"Assassin's Mark",desc:'Mark an enemy pawn. If it stays on the same square through the end of its next turn, it is killed.',t:'enemy',ok:(r,c,p)=>p.t==='p',run:(r,c,p)=>{p.assassinMark={r,c}}},
-  disarm:{r:'rare',name:'Disarm',desc:'Choose an enemy piece. After their next move, it cannot capture during their following turn.',t:'enemy',run:(r,c,p)=>{p.noTake=1}},
+  disarm:{r:'epic',name:'Disarm',desc:'Choose an enemy piece. After their next move, it cannot capture during their following turn.',t:'enemy',run:(r,c,p)=>{p.noTake=1}},
   trap:{r:'rare',name:'Trap',desc:'Mark an empty square. The first enemy piece landing there loses its next move.',t:'empty',run:(r,c,p,me)=>{S.traps.push({r,c,by:me})}},
-  teleport:{r:'rare',name:'Teleport',desc:'Move one of your pieces to an empty square within 3 squares.',t:'own',twoTarget:'teleport',run:(r,c,p,me,from)=>{const q=S.b[from[0]][from[1]];S.b[from[0]][from[1]]=null;S.b[r][c]=q;S.ep=null}},
-  swap:{r:'rare',name:'Swap',desc:'Swap the positions of two of your pieces.',t:'own',twoTarget:'swap',run:(r,c,p,me,from)=>{const q=S.b[from[0]][from[1]];S.b[from[0]][from[1]]=S.b[r][c];S.b[r][c]=q;S.ep=null}},
   reinforcePawn:{r:'rare',name:'Reinforce Pawn',desc:'Summon a pawn on an empty square in your back two rows.',t:'empty',piece:'p',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'p',c:me}}},
   reinforceBishop:{r:'epic',name:'Reinforce Bishop',desc:'Summon a bishop on an empty square in your back two rows.',t:'empty',piece:'b',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'b',c:me}}},
   reinforceKnight:{r:'epic',name:'Reinforce Knight',desc:'Summon a knight on an empty square in your back two rows.',t:'empty',piece:'n',ok:(r,c,p,me)=>me==='w'?r>=6:r<=1,run:(r,c,p,me)=>{S.b[r][c]={t:'n',c:me}}},
@@ -150,17 +149,22 @@ const KN=[[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]];
 const HOP=[[2,0],[-2,0],[0,2],[0,-2],[2,2],[2,-2],[-2,2],[-2,-2]];
 const ALL8=D4.concat(X4);
 let S,mine=null,conn=null,sel=null,mode=null,local=false;
-let openMenu=null;
+let openMenu=null,coverageMode=false,gameOverTimer=null;
 
 const has=(c,id)=>S.perks[c].includes(id);
 const pick=a=>a[Math.floor(Math.random()*a.length)];
 const pool=(T,r)=>Object.keys(T).filter(k=>T[k].r===r);
 
 function dealHand(){
-  const all=SPELL_KEYS.slice();
-  const a=pick(all);
-  const rest=all.filter(k=>k!==a);
-  const b=pick(rest);
+  const draw=()=>{
+    const tiers=Object.keys(RAR),roll=Math.random()*100;let total=0,tier='common';
+    for(const t of tiers){total+=RAR[t].weight;if(roll<total){tier=t;break;}}
+    const options=pool(SPELLS,tier);
+    return options.length?pick(options):pick(SPELL_KEYS);
+  };
+  const a=draw();let b=draw(),tries=0;
+  while(b===a&&tries++<20)b=draw();
+  if(b===a)b=pick(SPELL_KEYS.filter(k=>k!==a));
   return [a,b];
 }
 
@@ -168,7 +172,7 @@ function newGame(mins){
   const back='rnbqkbnr',b=Array.from({length:8},()=>Array(8).fill(null));
   for(let c=0;c<8;c++){b[0][c]={t:back[c],c:'b'};b[1][c]={t:'p',c:'b'};b[6][c]={t:'p',c:'w'};b[7][c]={t:back[c],c:'w'}}
   return {b,turn:'w',played:false,extra:0,win:null,ep:null,msg:'',
-    pts:{w:2,b:2},perks:{w:[],b:[]},h:{w:dealHand(),b:dealHand()},armed:null,tgt:false,spellFrom:null,traps:[],revenge:{w:0,b:0},pendingDebuff:null,why:null,
+    pts:{w:2,b:2},perks:{w:[],b:[]},h:{w:dealHand(),b:dealHand()},armed:null,tgt:false,spellFrom:null,traps:[],compensation:{w:0,b:0},pendingDebuff:null,kingLast:{w:null,b:null},why:null,
     t:mins?{w:mins*60000,b:mins*60000}:null};
 }
 
@@ -201,11 +205,12 @@ function moves(r,c){
   const add=(y,x)=>{if(free(y,x))o.push([y,x]);else cap(y,x)};
   const slide=(dirs,thruOwn,thruEnemy,sac,lite)=>{
     for(const[y,x]of dirs){
-      let a=r+y,b=c+x,hop=false,passed=false,own=0;
+      let a=r+y,b=c+x,hop=false,passed=false,own=0,afterOwn=false;
       while(inb(a,b)){
         const q=S.b[a][b];
+        if(afterOwn){if(!q)o.push([a,b]);break;}
         if(!q){if(!hop)o.push([a,b])}
-        else if(q.c===me){if(!thruOwn||own>=1)break;own++}
+        else if(q.c===me){if(!thruOwn||own>=1)break;own++;afterOwn=true}
         else{
           if(canTake(p,q,a,b)&&!(lite&&passed))o.push(hop?[a,b,'sac']:[a,b]);
           if(thruEnemy){passed=true}
@@ -223,25 +228,29 @@ function moves(r,c){
       o.push([r+d,c]);
       if((r===st||H('pawn2'))&&free(r+2*d,c)) o.push([r+2*d,c,'dbl']);
     }
+    // Pawn Jump: from the normal starting rank, vault over and capture an enemy pawn.
+    const jumped=S.b[r+d]?.[c];
+    if(H('pawnJump')&&r===st&&jumped&&jumped.c!==me&&jumped.t==='p'&&canTake(p,jumped,r+d,c)&&free(r+2*d,c))o.push([r+2*d,c,'pawnJump']);
     for(const x of[-1,1]){
       cap(r+d,c+x);
-      if(H('pawnBack')) cap(r-d,c+x);
       const e=S.ep;
       if(e&&e.c!==me&&e.sq[0]===r+d&&e.sq[1]===c+x&&(e.dbl||H('epAny'))){
         const t=S.b[e.pawn[0]][e.pawn[1]];
         if(t&&canTake(p,t,e.pawn[0],e.pawn[1])) o.push([r+d,c+x,'ep']);
       }
     }
-    if(H('brawler')) cap(r+d,c);
-    if(H('pawnFury')){cap(r,c-1);cap(r,c+1)}
-    if(H('pawnSide')){mv(r,c-1);mv(r,c+1)}
   }else if(p.t==='n'){
     knight();
     if(H('knightStep')) ALL8.forEach(([y,x])=>mv(r+y,c+x));
-    if(H('knightHop')||H('grand')) HOP.forEach(([y,x])=>(H('grand')?add:mv)(r+y,c+x));
+    if(H('grand')) HOP.forEach(([y,x])=>add(r+y,c+x));
   }else if(p.t==='k'){
     ALL8.forEach(([y,x])=>add(r+y,c+x));
-    if(H('kingStep')) HOP.forEach(([y,x])=>mv(r+y,c+x));
+    if(H('castling')&&!coverageMode&&!p.moved&&c===4&&(r===7||r===0)){
+      const enemy=me==='w'?'b':'w';
+      const rookK=S.b[r][7],rookQ=S.b[r][0];
+      if(rookK&&rookK.t==='r'&&rookK.c===me&&!rookK.moved&&!S.b[r][5]&&!S.b[r][6]&&!squareCovered(r,4,enemy)&&!squareCovered(r,5,enemy)&&!squareCovered(r,6,enemy))o.push([r,6,'castleK']);
+      if(rookQ&&rookQ.t==='r'&&rookQ.c===me&&!rookQ.moved&&!S.b[r][1]&&!S.b[r][2]&&!S.b[r][3]&&!squareCovered(r,4,enemy)&&!squareCovered(r,3,enemy)&&!squareCovered(r,2,enemy))o.push([r,2,'castleQ']);
+    }
   }else if(p.t==='b'){
     slide(X4,H('bishPhase'),H('legion'),false,true);
     if(H('bishHop')) D4.forEach(([y,x])=>mv(r+y,c+x));
@@ -251,6 +260,21 @@ function moves(r,c){
   }else if(p.t==='q'){
     slide(ALL8,false,H('ghost'),false,true);
     if(H('queenKnight')) knight();
+  }
+  // Archbishop: enemy bishops cannot enter any file or diagonal controlled by one of this player's bishops.
+  if(p.t==='b'){
+    const enemy=me==='w'?'b':'w';
+    if(has(enemy,'archbishop')){
+      const wardingBishops=[];
+      for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+        const q=S.b[y][x];
+        if(q&&q.c===enemy&&q.t==='b')wardingBishops.push([y,x]);
+      }
+      for(let i=o.length-1;i>=0;i--){
+        const [ty,tx]=o[i];
+        if(wardingBishops.some(([by,bx])=>tx===bx||Math.abs(ty-by)===Math.abs(tx-bx)))o.splice(i,1);
+      }
+    }
   }
   return o;
 }
@@ -288,6 +312,23 @@ setInterval(()=>{
 function endTurn(){
   settle();
   const me=S.turn,op=me==='w'?'b':'w',notices=S.msg?[S.msg]:[];
+  // Delayed Intel lasts for exactly the intel owner's next turn.
+  for(const row of S.b)for(const q of row)if(q&&q.t==='k'&&q.delayedIntelFor===me){delete q.delayedIntelFor;delete q.delayedIntelFrom;}
+  // Resolve Royal Forks when the knight's owner is about to take their next turn.
+  if(S.b&&op){
+    const tokens=[];
+    for(const row of S.b)for(const q of row)if(q&&q.c===op&&q.t==='n'&&q.royalForkToken)tokens.push(q.royalForkToken);
+    for(const token of tokens){
+      let removed=0;
+      for(let r=0;r<8;r++)for(let c=0;c<8;c++){
+        const q=S.b[r][c];if(q&&q.royalForkTarget===token){S.pts[op]+=VAL[q.t]+(q.bounty||0);if(q.insured)S.pts[q.c]+=VAL[q.t];if(S.compensation&&S.compensation[q.c]){S.pts[q.c]+=VAL[q.t];S.compensation[q.c]=0;}delete q.royalForkTarget;if(q.t!=='k'){S.b[r][c]=null;removed++;}}
+      }
+      for(const row of S.b)for(const q of row)if(q&&q.royalForkToken===token)delete q.royalForkToken;
+      if(removed)notices.push(`Royal Fork resolved: ${removed} forked piece(s) captured.`);
+    }
+    // If the knight was captured before its next turn, clear its pending marks.
+    for(let r=0;r<8;r++)for(let c=0;c<8;c++){const q=S.b[r][c];if(q&&q.royalForkTarget){const alive=S.b.some(row=>row.some(x=>x&&x.royalForkToken===q.royalForkTarget));if(!alive)delete q.royalForkTarget;}}
+  }
   for(let r=0;r<8;r++)for(let c=0;c<8;c++){
     const q=S.b[r][c];if(!q)continue;
     if(q.c===me){
@@ -320,18 +361,29 @@ function doMove(a,b,fl){
   S.msg='';
   const p=S.b[a[0]][a[1]],me=p.c;
   let cap=S.b[b[0]][b[1]];
+  if(p.t==='k'){
+    S.kingLast=S.kingLast||{w:null,b:null};S.kingLast[me]=[a[0],a[1]];
+    const observer=me==='w'?'b':'w';
+    if(has(observer,'delayedIntel')){p.delayedIntelFrom=[a[0],a[1]];p.delayedIntelFor=observer;}
+    else{delete p.delayedIntelFrom;delete p.delayedIntelFor;}
+  }
+  if(fl==='castleK'||fl==='castleQ'){
+    const rookFrom=fl==='castleK'?7:0,rookTo=fl==='castleK'?5:3;
+    const rook=S.b[a[0]][rookFrom];
+    S.b[a[0]][rookTo]=rook;S.b[a[0]][rookFrom]=null;if(rook)rook.moved=true;
+  }
   if(fl==='ep'){const e=S.ep.pawn;cap=S.b[e[0]][e[1]];S.b[e[0]][e[1]]=null}
-  S.b[a[0]][a[1]]=null;
-  S.b[b[0]][b[1]]=fl==='sac'?null:p;
+  if(fl==='pawnJump'){cap=S.b[a[0]+(me==='w'?-1:1)][a[1]];S.b[a[0]+(me==='w'?-1:1)][a[1]]=null;}
+  S.b[a[0]][a[1]]=null;S.b[b[0]][b[1]]=fl==='sac'?null:p;if(p)p.moved=true;
   if(p.assassinMark){delete p.assassinMark;S.msg="The marked pawn escaped by moving.";}
-  const take=q=>{if(!q)return;S.pts[me]+=VAL[q.t]+(q.bounty||0);if(q.insured)S.pts[q.c]+=VAL[q.t];if(S.revenge&&S.revenge[q.c]){S.pts[q.c]+=VAL[q.t];S.revenge[q.c]=0;S.msg=`Revenge paid ${VAL[q.t]} points.`;}if(q.t==='k')S.win=me};
+  const take=q=>{if(!q)return;S.pts[me]+=VAL[q.t]+(q.bounty||0);if(q.insured)S.pts[q.c]+=VAL[q.t];if(S.compensation&&S.compensation[q.c]){S.pts[q.c]+=VAL[q.t];S.compensation[q.c]=0;S.msg=`Compensation paid ${VAL[q.t]} points.`;}if(q.t==='k')S.win=me};
   take(cap);
   if(fl==='sac') S.msg='Rook sacrificed to make the capture.';
   // Traps trigger when an enemy lands on their marked square. Spellproof pawns ignore them.
   const ti=(S.traps||[]).findIndex(t=>t.r===b[0]&&t.c===b[1]&&t.by!==me);
-  if(ti>=0){S.traps.splice(ti,1);if(!(p.t==='p'&&has(me,'pawnWard'))){p.frozen=2;S.msg='Trap triggered: that piece loses its next move.';}else S.msg='A spellproof pawn ignored the trap.';}
+  if(ti>=0){S.traps.splice(ti,1);if(!(p.t==='p'&&has(me,'pawnWard'))){p.frozen=1;S.msg='Trap triggered: that piece loses its next move.';}else S.msg='A spellproof pawn ignored the trap.';}
   S.ep=null;
-  if(p.t==='p'&&a[1]===b[1]){
+  if(fl!=='pawnJump'&&p.t==='p'&&a[1]===b[1]){
     const d=me==='w'?-1:1;
     if(fl==='dbl') S.ep={sq:[a[0]+d,a[1]],pawn:b,c:me,dbl:true};
     else if(b[0]-a[0]===d) S.ep={sq:a,pawn:b,c:me,dbl:false};
@@ -341,11 +393,14 @@ function doMove(a,b,fl){
     if(has(me,'promotionMaster')){const choice=(prompt('Promote to: q (queen), r (rook), b (bishop), or n (knight)','q')||'q').toLowerCase();p.t=['q','r','b','n'].includes(choice)?choice:'q';}
     else p.t='q';
   }
-  if(fl!=='sac'&&p.t==='n'&&has(me,'fork')){
+  if(fl!=='sac'&&p.t==='n'&&has(me,'fork')&&inCheck(me==='w'?'b':'w')){
     const tg=moves(b[0],b[1]).filter(m=>{const q=S.b[m[0]][m[1]];return q&&q.c!==me});
-    if(tg.length>1&&tg.some(m=>S.b[m[0]][m[1]].t==='k')){
-      tg.forEach(m=>{const q=S.b[m[0]][m[1]];if(q.t!=='k'){S.b[m[0]][m[1]]=null;take(q)}});
-      S.msg='Royal Fork! All forked pieces captured.';
+    const otherTargets=tg.filter(m=>S.b[m[0]][m[1]].t!=='k');
+    if(tg.some(m=>S.b[m[0]][m[1]].t==='k')&&otherTargets.length){
+      const token='rf'+Math.random().toString(36).slice(2,10);
+      p.royalForkToken=token;
+      otherTargets.forEach(([r,c])=>{S.b[r][c].royalForkTarget=token;});
+      S.msg='Royal Fork! The knight has until your next turn to survive; if it does, all marked pieces are captured.';
     }
   }
   if(S.extra>0) S.extra--; else finishTurn();
@@ -384,15 +439,11 @@ const validTarget=(card,r,c)=>{
   const q=S.b[r][c],me=S.turn;
   if(card.twoTarget&&S.spellFrom){
     const [fr,fc]=S.spellFrom;
-    if(card.twoTarget==='teleport')return !q&&Math.max(Math.abs(r-fr),Math.abs(c-fc))<=3;
-    if(card.twoTarget==='swap')return !!q&&q.c===me&&!(r===fr&&c===fc);
   }
   if(card.t==='own'&&!(q&&q.c===me)) return false;
   if(card.t==='enemy'&&!(q&&q.c!==me)) return false;
   if(card.t==='empty'&&q) return false;
   if(card.t==='enemy'&&q&&q.t==='p'&&has(q.c,'pawnWard')) return false;
-  if(card.twoTarget==='teleport'&&q&&q.t==='k')return false;
-  if(card.twoTarget==='swap'&&q&&q.t==='k')return false;
   return !card.ok||card.ok(r,c,q,me);
 };
 function sync(){
@@ -420,7 +471,7 @@ function clickSq(r,c){
   if(S.tgt){
     const me=S.turn,card=SPELLS[S.h[me][S.armed]];
     if(!validTarget(card,r,c)) return;
-    if(card.twoTarget&&!S.spellFrom){S.spellFrom=[r,c];S.msg=card.twoTarget==='teleport'?'Now choose an empty destination within 3 squares.':'Now choose your second piece to swap.';render();return;}
+    if(card.twoTarget&&!S.spellFrom){S.spellFrom=[r,c];S.msg='Choose the second target square.';render();return;}
     const cost=targetCost(card,S.b[r][c]);
     if(S.pts[me]<cost){S.msg=`You need ${cost} points for that target.`;render();return;}
     const rarity=targetRarity(card,S.b[r][c]);
@@ -503,17 +554,37 @@ function renderShop(){
   $('shop').innerHTML=html;
 }
 
+function squareCovered(r,c,by){
+  const was=coverageMode;coverageMode=true;
+  try{
+    for(let y=0;y<8;y++)for(let x=0;x<8;x++){
+      const q=S.b[y][x];
+      if(q&&q.c===by&&moves(y,x).some(m=>m[0]===r&&m[1]===c))return true;
+    }
+    return false;
+  }finally{coverageMode=was;}
+}
+
 function render(){
   if(!S) return;
   const flip=mine==='b'&&!local,board=$('board');board.innerHTML='';
   const who=local?S.turn:mine,opp=who==='w'?'b':'w',mt=myTurn()&&who===S.turn;
   const hl=sel?moves(...sel):[];
   const tg=(S.tgt&&myTurn())?SPELLS[S.h[S.turn][S.armed]]:null;
+  const kingThreats=new Set();
+  if(sel){const selected=S.b[sel[0]][sel[1]];if(selected&&selected.t==='k'&&selected.c===who){
+    const enemy=who==='w'?'b':'w';
+    for(let y=0;y<8;y++)for(let x=0;x<8;x++){const piece=S.b[y][x];if(piece&&piece.c===enemy)for(const m of moves(y,x))if(Math.max(Math.abs(m[0]-sel[0]),Math.abs(m[1]-sel[1]))<=2)kingThreats.add(m[0]+','+m[1]);}
+  }}
   for(let i=0;i<64;i++){
     const r=flip?7-Math.floor(i/8):Math.floor(i/8),c=flip?7-i%8:i%8;
     const q=S.b[r][c],d=document.createElement('div');
     d.className='sq '+((r+c)%2?'d':'l');
+    const ghostKing=S.b.flat().find(piece=>piece&&piece.t==='k'&&piece.delayedIntelFor===who&&piece.delayedIntelFrom&&piece.delayedIntelFrom[0]===r&&piece.delayedIntelFrom[1]===c);
+    if(ghostKing){d.classList.add('intel-ghost');d.innerHTML='<span style="font-size:.65em;opacity:.55">♚</span>'; }
     if(sel&&sel[0]===r&&sel[1]===c) d.classList.add('sel');
+    if(q&&q.t==='k'&&inCheck(q.c))d.classList.add('king-check');
+    if(kingThreats.has(r+','+c))d.classList.add('threatened-near');
     if(hl.some(m=>m[0]===r&&m[1]===c)) d.classList.add('mv');
     if(tg&&validTarget(tg,r,c)) d.classList.add('tg');
     const trapHere=(S.traps||[]).some(t=>t.r===r&&t.c===c);
@@ -523,7 +594,7 @@ function render(){
       if(q.debuffQueued) d.classList.add('debuff-queued');
       if(q.shield) d.classList.add('shield');
       if(q.bounty) d.classList.add('bounty');
-      const hidden=q.invisible&&q.c!==who;
+      const hidden=(q.invisible&&q.c!==who)||(q.t==='k'&&q.delayedIntelFor===who);
       const bd=(q.frozen?'❄️':'')+(q.debuffQueued?'⚠️':q.noTake?'🚫':'')+(q.shield?'🛡️':'')+(q.bounty?'★'+q.bounty:'')+(q.assassinMark?'☠️':'')+(q.insured?'💠':'');
       if(!hidden)d.innerHTML=`<span class="${q.c==='w'?'pw':'pb'}">${GLYPH[q.t]}</span>${bd?`<span class="bdg">${bd}</span>`:''}`;
     }
@@ -560,9 +631,22 @@ function render(){
   else if(S.b&&S.b.some(row=>row.some(q=>q&&q.noTake&&q.c===S.turn))) $('note').textContent='🚫 Disarmed: the marked piece cannot capture during this turn.';
   else if(S.tgt&&S.armed!==null&&SPELLS[S.h[S.turn][S.armed]].twoTarget&&S.spellFrom)$('note').textContent='Choose the second square to complete the spell.';
   else if((S.traps||[]).length)$('note').textContent='⚠️ A trap is waiting on the board.';
-  else if(S.revenge&&S.revenge[who])$('note').textContent='⚔️ Revenge is active: your next captured piece pays you its value.';
+  else if(S.compensation&&S.compensation[who])$('note').textContent='⚔️ Compensation is active: your next captured piece pays you its value.';
+  else if(has(who,'delayedIntel')){$('note').textContent='🔎 Delayed Intel: the enemy king is hidden for this turn. The faded king marks its previous square.';}
   const disarmedNow=S.b&&S.b.some(row=>row.some(q=>q&&q.noTake&&q.c===S.turn));
-  if(!S.pendingDebuff&&!disarmedNow&&!S.win&&mt&&!S.tgt&&S.armed===null) $('note').textContent='Spells take effect after you move: tap a card to arm it, then make your move.';
+  if(!S.pendingDebuff&&!disarmedNow&&!S.win&&mt&&!S.tgt&&S.armed===null&&!has(who,'delayedIntel')) $('note').textContent='Spells take effect after you move: tap a card to arm it, then make your move.';
+  if(S.win&&!gameOverTimer){
+    const winner=S.win==='w'?'White':'Black';
+    const result=S.why==='time'?`${winner} wins on time.`:`${winner} wins by capturing the king.`;
+    gameOverTimer=setTimeout(()=>{
+      if(!S||!S.win)return;
+      cleanupPeer();
+      $('game').hidden=true;$('lobby').hidden=false;
+      $('lobbymsg').textContent=`Game over — ${result} You can start or join another game.`;
+      $('host').disabled=false;$('joinBtn').disabled=false;$('code').textContent='';$('join').value='';
+      S=null;mine=null;local=false;sel=null;mode=null;openMenu=null;networkMessage='';gameOverTimer=null;
+    },2500);
+  }
 }
 
 document.addEventListener('click',e=>{
@@ -589,6 +673,7 @@ function setNetworkMessage(message){
   else $('lobbymsg').textContent=message;
 }
 function start(){
+  if(gameOverTimer){clearTimeout(gameOverTimer);gameOverTimer=null;}
   $('lobby').hidden=true;$('game').hidden=false;
   $('timer').disabled=true;
   clockReset();render();
@@ -618,7 +703,7 @@ function wireConnection(c,side){
     if($('game').hidden) start(); else render();
   });
   conn.on('close',()=>{
-    setNetworkMessage('Opponent disconnected.');
+    if(S&&!S.win&&!$('game').hidden)setNetworkMessage('Opponent disconnected.');
     conn=null;
   });
   conn.on('error',err=>{
