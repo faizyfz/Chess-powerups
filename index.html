@@ -594,7 +594,7 @@ $('joinBtn').onclick=async()=>{
       room.status='playing';
 
       return room;
-    },undefined,false);
+    },null,false);
 
     if(!result.committed){
       const latest=(await ref.get()).val();
